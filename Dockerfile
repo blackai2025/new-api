@@ -3,7 +3,9 @@ FROM oven/bun:latest AS builder
 WORKDIR /build
 COPY web/package.json .
 COPY web/bun.lock .
-RUN bun install
+# 使用国内镜像源加速
+RUN echo '[install]\nregistry = "https://registry.npmmirror.com"' > bunfig.toml && \
+    bun install --verbose
 COPY ./web .
 COPY ./VERSION .
 RUN DISABLE_ESLINT_PLUGIN='true' VITE_REACT_APP_VERSION=$(cat VERSION) bun run build
@@ -15,6 +17,9 @@ ARG TARGETOS
 ARG TARGETARCH
 ENV GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64}
 ENV GOEXPERIMENT=greenteagc
+
+# 使用国内 Go 代理
+ENV GOPROXY=https://goproxy.cn,direct
 
 WORKDIR /build
 
