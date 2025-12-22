@@ -288,7 +288,7 @@ func (a *TaskAdaptor) GetChannelName() string {
 // 统一状态映射（支持大小写）
 func mapStatus(status string) string {
 	switch strings.ToLower(status) {
-	case "submitted", "queued":
+	case "submitted", "queued", "pending":
 		return "SUBMITTED"
 	case "processing", "in_progress", "running":
 		return "IN_PROGRESS"
