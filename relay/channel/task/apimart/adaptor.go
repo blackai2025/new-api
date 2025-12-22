@@ -34,22 +34,26 @@ type APIMartTaskData struct {
 	VideoURLs []string `json:"video_urls,omitempty"` // 任务内的URL
 }
 
-// APIMart 查询响应结构（data 是对象）
+// APIMart 查询响应结构（/v1/tasks/{task_id} 返回格式）
 type APIMartQueryResponse struct {
-	Code int              `json:"code"`
-	Data APIMartQueryData `json:"data"` // data 是对象，不是数组
+	Code int                 `json:"code"` // 200 表示成功
+	Data APIMartQueryData    `json:"data"`
 }
 
 type APIMartQueryData struct {
-	ID       string        `json:"id"`
-	Status   string        `json:"status"`
-	Progress int           `json:"progress"`
-	Result   APIMartResult `json:"result,omitempty"`
+	ID            string            `json:"id"`
+	Status        string            `json:"status"`        // "completed", "processing", etc.
+	Progress      int               `json:"progress"`      // 0-100 整数
+	ActualTime    int               `json:"actual_time"`
+	EstimatedTime int               `json:"estimated_time"`
+	Created       int64             `json:"created"`
+	Completed     int64             `json:"completed"`
+	Result        APIMartResult     `json:"result"`
 }
 
 type APIMartResult struct {
-	Videos []APIMartMedia `json:"videos,omitempty"`
 	Images []APIMartMedia `json:"images,omitempty"`
+	Videos []APIMartMedia `json:"videos,omitempty"`
 }
 
 type APIMartMedia struct {
@@ -220,19 +224,8 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 		return nil, fmt.Errorf("task_id not found")
 	}
 
-	// 从 body 中获取任务类型
-	taskType, ok := body["task_type"].(string)
-	if !ok {
-		taskType = "video" // 默认视频
-	}
-
-	// 构建查询 URL
-	var requestUrl string
-	if taskType == "video" {
-		requestUrl = fmt.Sprintf("%s/v1/videos/generations/%s", baseUrl, taskID)
-	} else {
-		requestUrl = fmt.Sprintf("%s/v1/images/generations/%s", baseUrl, taskID)
-	}
+	// 构建查询 URL（apiMart 使用统一的任务查询端点 /v1/tasks/{task_id}）
+	requestUrl := fmt.Sprintf("%s/v1/tasks/%s", baseUrl, taskID)
 
 	req, err := http.NewRequest("GET", requestUrl, nil)
 	if err != nil {
@@ -260,6 +253,7 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 		return nil, fmt.Errorf("unmarshal response failed: %w", err)
 	}
 
+	// 检查是否成功
 	if apiResponse.Code != 200 {
 		return nil, fmt.Errorf("upstream error, code: %d", apiResponse.Code)
 	}
@@ -268,12 +262,12 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 	status := mapStatus(apiResponse.Data.Status)
 	progress := fmt.Sprintf("%d%%", apiResponse.Data.Progress)
 
-	// 提取 URL：优先视频，其次图片
+	// 提取 URL：优先图片，其次视频
 	var resultURL string
-	if len(apiResponse.Data.Result.Videos) > 0 && len(apiResponse.Data.Result.Videos[0].URL) > 0 {
-		resultURL = apiResponse.Data.Result.Videos[0].URL[0]
-	} else if len(apiResponse.Data.Result.Images) > 0 && len(apiResponse.Data.Result.Images[0].URL) > 0 {
+	if len(apiResponse.Data.Result.Images) > 0 && len(apiResponse.Data.Result.Images[0].URL) > 0 {
 		resultURL = apiResponse.Data.Result.Images[0].URL[0]
+	} else if len(apiResponse.Data.Result.Videos) > 0 && len(apiResponse.Data.Result.Videos[0].URL) > 0 {
+		resultURL = apiResponse.Data.Result.Videos[0].URL[0]
 	}
 
 	return &relaycommon.TaskInfo{
@@ -291,16 +285,16 @@ func (a *TaskAdaptor) GetChannelName() string {
 	return ChannelName
 }
 
-// 统一状态映射
+// 统一状态映射（支持大小写）
 func mapStatus(status string) string {
-	switch status {
-	case "submitted":
+	switch strings.ToLower(status) {
+	case "submitted", "queued":
 		return "SUBMITTED"
-	case "processing", "in_progress":
+	case "processing", "in_progress", "running":
 		return "IN_PROGRESS"
-	case "succeeded", "completed":
+	case "succeeded", "completed", "success":
 		return "SUCCESS"
-	case "failed", "error":
+	case "failed", "error", "failure":
 		return "FAILURE"
 	default:
 		return "UNKNOWN"

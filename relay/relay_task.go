@@ -268,9 +268,56 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *dto.
 	task.Data = taskData
 	task.Action = info.Action
 
-	// 如果提交时就返回了 URL（例如 APIMart 快速图片生成），立即设置到 fail_reason
+	// APIMart：解析提交响应中的初始状态，立即更新任务状态
+	if info.ChannelType == constant.ChannelTypeAPIMart {
+		var submitResp struct {
+			Code int `json:"code"`
+			Data []struct {
+				Status    string   `json:"status"`
+				TaskID    string   `json:"task_id"`
+				ImageURLs []string `json:"image_urls,omitempty"`
+				VideoURLs []string `json:"video_urls,omitempty"`
+			} `json:"data"`
+		}
+
+		if err := json.Unmarshal(taskData, &submitResp); err == nil && len(submitResp.Data) > 0 {
+			initialStatus := submitResp.Data[0].Status
+
+			// 映射初始状态（与 adaptor 中的 mapStatus 保持一致）
+			switch initialStatus {
+			case "submitted":
+				task.Status = model.TaskStatusSubmitted
+				task.Progress = "0%"
+			case "processing", "in_progress":
+				task.Status = model.TaskStatusInProgress
+				task.Progress = "50%"
+			case "succeeded", "completed":
+				task.Status = model.TaskStatusSuccess
+				task.Progress = "100%"
+			case "failed", "error":
+				task.Status = model.TaskStatusFailure
+				task.Progress = "100%"
+			}
+
+			// 如果提交响应中直接包含 URL（快速生成），立即设置
+			var resultURL string
+			if len(submitResp.Data[0].ImageURLs) > 0 {
+				resultURL = submitResp.Data[0].ImageURLs[0]
+			} else if len(submitResp.Data[0].VideoURLs) > 0 {
+				resultURL = submitResp.Data[0].VideoURLs[0]
+			}
+
+			if resultURL != "" {
+				task.FailReason = resultURL
+				task.Status = model.TaskStatusSuccess
+				task.Progress = "100%"
+			}
+		}
+	}
+
+	// 兼容旧的 immediate URL 方式
 	if immediateURL, exists := c.Get("apimart_immediate_url"); exists {
-		if urlStr, ok := immediateURL.(string); ok && urlStr != "" {
+		if urlStr, ok := immediateURL.(string); ok && urlStr != "" && task.FailReason == "" {
 			task.FailReason = urlStr
 			task.Status = model.TaskStatusSuccess
 			task.Progress = "100%"

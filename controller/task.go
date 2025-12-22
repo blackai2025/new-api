@@ -327,7 +327,7 @@ func updateAPIMartTaskAll(ctx context.Context, channelId int, taskIds []string, 
 			taskType = "image"
 		}
 
-		resp, err := adaptor.FetchTask(*channel.BaseURL, channel.Key, map[string]any{
+		resp, err := adaptor.FetchTask(channel.GetBaseURL(), channel.Key, map[string]any{
 			"task_id":   taskId,
 			"task_type": taskType,
 		}, proxy)
