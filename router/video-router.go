@@ -21,6 +21,9 @@ func SetVideoRouter(router *gin.Engine) {
 	{
 		videoV1Router.POST("/videos", controller.RelayTask)
 		videoV1Router.GET("/videos/:task_id", controller.RelayTask)
+		// APIMart 和其他平台的视频生成路由
+		videoV1Router.POST("/videos/generations", controller.RelayTask)
+		videoV1Router.GET("/videos/generations/:task_id", controller.RelayTask)
 	}
 
 	klingV1Router := router.Group("/kling/v1")

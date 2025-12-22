@@ -184,6 +184,11 @@ export const CHANNEL_OPTIONS = [
     color: 'blue',
     label: 'Replicate',
   },
+  {
+    value: 58,
+    color: 'purple',
+    label: 'APIMart',
+  },
 ];
 
 export const MODEL_TABLE_PAGE_SIZE = 10;

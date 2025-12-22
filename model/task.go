@@ -76,6 +76,7 @@ type Properties struct {
 	Input             string `json:"input"`
 	UpstreamModelName string `json:"upstream_model_name,omitempty"`
 	OriginModelName   string `json:"origin_model_name,omitempty"`
+	TaskType          string `json:"task_type,omitempty"` // "video" or "image"
 }
 
 func (m *Properties) Scan(val interface{}) error {
@@ -138,6 +139,12 @@ func InitTask(platform constant.TaskPlatform, relayInfo *commonRelay.RelayInfo) 
 		}
 		if relayInfo.OriginModelName != "" {
 			properties.OriginModelName = relayInfo.OriginModelName
+		}
+		// 根据 action 判断任务类型（用于 APIMart）
+		if relayInfo.Action == constant.TaskActionImageGenerate {
+			properties.TaskType = "image"
+		} else if relayInfo.Action == constant.TaskActionVideoGenerate {
+			properties.TaskType = "video"
 		}
 	}
 

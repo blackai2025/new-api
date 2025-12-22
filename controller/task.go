@@ -77,6 +77,8 @@ func UpdateTaskByPlatform(platform constant.TaskPlatform, taskChannelM map[int][
 		//_ = UpdateMidjourneyTaskAll(context.Background(), tasks)
 	case constant.TaskPlatformSuno:
 		_ = UpdateSunoTaskAll(context.Background(), taskChannelM, taskM)
+	case constant.TaskPlatformAPIMart, "58", "57": // APIMart 的 platform 可能是 "apimart"、"58" 或 "57"
+		_ = UpdateAPIMartTaskAll(context.Background(), taskChannelM, taskM)
 	default:
 		if err := UpdateVideoTaskAll(context.Background(), platform, taskChannelM, taskM); err != nil {
 			common.SysLog(fmt.Sprintf("UpdateVideoTaskAll fail: %s", err))
@@ -273,4 +275,119 @@ func GetUserTask(c *gin.Context) {
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(items)
 	common.ApiSuccess(c, pageInfo)
+}
+
+// UpdateAPIMartTaskAll APIMart 统一任务轮询
+func UpdateAPIMartTaskAll(ctx context.Context, taskChannelM map[int][]string, taskM map[string]*model.Task) error {
+	for channelId, taskIds := range taskChannelM {
+		if err := updateAPIMartTaskAll(ctx, channelId, taskIds, taskM); err != nil {
+			logger.LogError(ctx, fmt.Sprintf("渠道 #%d 更新 APIMart 任务失败: %s", channelId, err.Error()))
+		}
+	}
+	return nil
+}
+
+func updateAPIMartTaskAll(ctx context.Context, channelId int, taskIds []string, taskM map[string]*model.Task) error {
+	logger.LogInfo(ctx, fmt.Sprintf("渠道 #%d 未完成的 APIMart 任务有: %d", channelId, len(taskIds)))
+	if len(taskIds) == 0 {
+		return nil
+	}
+
+	channel, err := model.CacheGetChannel(channelId)
+	if err != nil {
+		common.SysLog(fmt.Sprintf("CacheGetChannel: %v", err))
+		err = model.TaskBulkUpdate(taskIds, map[string]any{
+			"fail_reason": fmt.Sprintf("获取渠道信息失败，请联系管理员，渠道ID：%d", channelId),
+			"status":      "FAILURE",
+			"progress":    "100%",
+		})
+		if err != nil {
+			common.SysLog(fmt.Sprintf("UpdateAPIMartTask error: %v", err))
+		}
+		return err
+	}
+
+	adaptor := relay.GetTaskAdaptor(constant.TaskPlatformAPIMart)
+	if adaptor == nil {
+		return errors.New("APIMart adaptor not found")
+	}
+
+	proxy := channel.GetSetting().Proxy
+
+	for _, taskId := range taskIds {
+		task := taskM[taskId]
+		if task == nil {
+			logger.LogError(ctx, fmt.Sprintf("任务 %s 在任务映射中未找到", taskId))
+			continue
+		}
+
+		// 根据任务的 action 判断类型
+		taskType := "video"
+		if task.Action == constant.TaskActionImageGenerate {
+			taskType = "image"
+		}
+
+		resp, err := adaptor.FetchTask(*channel.BaseURL, channel.Key, map[string]any{
+			"task_id":   taskId,
+			"task_type": taskType,
+		}, proxy)
+
+		if err != nil {
+			logger.LogError(ctx, fmt.Sprintf("查询任务 %s 失败: %v", taskId, err))
+			continue
+		}
+
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+
+		taskInfo, err := adaptor.ParseTaskResult(body)
+		if err != nil {
+			logger.LogError(ctx, fmt.Sprintf("解析任务 %s 结果失败: %v", taskId, err))
+			continue
+		}
+
+		// 更新任务状态
+		oldStatus := task.Status
+		task.Status = model.TaskStatus(taskInfo.Status)
+		task.Progress = taskInfo.Progress
+		if taskInfo.Url != "" {
+			task.FailReason = taskInfo.Url // 存储结果 URL
+		}
+
+		// 后备方案：如果轮询未返回 URL，尝试从任务的 data 字段提取（针对快速生成的情况）
+		if task.FailReason == "" && task.Status == model.TaskStatusSuccess {
+			var taskDataMap map[string]interface{}
+			if err := json.Unmarshal(task.Data, &taskDataMap); err == nil {
+				// 尝试提取 image_urls
+				if imageURLs, ok := taskDataMap["image_urls"].([]interface{}); ok && len(imageURLs) > 0 {
+					if urlStr, ok := imageURLs[0].(string); ok {
+						task.FailReason = urlStr
+					}
+				}
+				// 尝试提取 video_urls
+				if task.FailReason == "" {
+					if videoURLs, ok := taskDataMap["video_urls"].([]interface{}); ok && len(videoURLs) > 0 {
+						if urlStr, ok := videoURLs[0].(string); ok {
+							task.FailReason = urlStr
+						}
+					}
+				}
+			}
+		}
+
+		// 失败退款（防止重复退款）
+		if task.Status == model.TaskStatusFailure && oldStatus != model.TaskStatusFailure && task.Quota != 0 {
+			_ = model.IncreaseUserQuota(task.UserId, task.Quota, false)
+			logContent := fmt.Sprintf("%s生成失败 %s，退还额度 %s",
+				taskType, task.TaskID, logger.LogQuota(task.Quota))
+			model.RecordLog(task.UserId, model.LogTypeSystem, logContent)
+			logger.LogInfo(ctx, logContent)
+		}
+
+		if err := task.Update(); err != nil {
+			logger.LogError(ctx, fmt.Sprintf("更新任务 %s 失败: %v", taskId, err))
+		}
+	}
+
+	return nil
 }

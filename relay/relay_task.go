@@ -267,6 +267,16 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *dto.
 	task.Quota = quota
 	task.Data = taskData
 	task.Action = info.Action
+
+	// 如果提交时就返回了 URL（例如 APIMart 快速图片生成），立即设置到 fail_reason
+	if immediateURL, exists := c.Get("apimart_immediate_url"); exists {
+		if urlStr, ok := immediateURL.(string); ok && urlStr != "" {
+			task.FailReason = urlStr
+			task.Status = model.TaskStatusSuccess
+			task.Progress = "100%"
+		}
+	}
+
 	err = task.Insert()
 	if err != nil {
 		taskErr = service.TaskErrorWrapper(err, "insert_task_failed", http.StatusInternalServerError)

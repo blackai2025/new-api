@@ -33,6 +33,7 @@ import {
   Hash,
   Video,
   Sparkles,
+  Image as ImageIcon,
 } from 'lucide-react';
 import {
   TASK_ACTION_FIRST_TAIL_GENERATE,
@@ -40,6 +41,8 @@ import {
   TASK_ACTION_REFERENCE_GENERATE,
   TASK_ACTION_TEXT_GENERATE,
   TASK_ACTION_REMIX_GENERATE,
+  TASK_ACTION_IMAGE_GENERATE,
+  TASK_ACTION_VIDEO_GENERATE,
 } from '../../../constants/common.constant';
 import { CHANNEL_OPTIONS } from '../../../constants/channel.constants';
 
@@ -130,6 +133,18 @@ const renderType = (type, t) => {
       return (
         <Tag color='blue' shape='circle' prefixIcon={<Sparkles size={14} />}>
           {t('视频Remix')}
+        </Tag>
+      );
+    case TASK_ACTION_IMAGE_GENERATE:
+      return (
+        <Tag color='purple' shape='circle' prefixIcon={<ImageIcon size={14} />}>
+          {t('图片生成')}
+        </Tag>
+      );
+    case TASK_ACTION_VIDEO_GENERATE:
+      return (
+        <Tag color='cyan' shape='circle' prefixIcon={<Video size={14} />}>
+          {t('视频生成')}
         </Tag>
       );
     default:
@@ -361,15 +376,21 @@ export const getTaskLogsColumns = ({
       dataIndex: 'fail_reason',
       fixed: 'right',
       render: (text, record, index) => {
-        // 仅当为视频生成任务且成功，且 fail_reason 是 URL 时显示可点击链接
+        // 判断任务类型
         const isVideoTask =
           record.action === TASK_ACTION_GENERATE ||
           record.action === TASK_ACTION_TEXT_GENERATE ||
           record.action === TASK_ACTION_FIRST_TAIL_GENERATE ||
           record.action === TASK_ACTION_REFERENCE_GENERATE ||
-          record.action === TASK_ACTION_REMIX_GENERATE;
+          record.action === TASK_ACTION_REMIX_GENERATE ||
+          record.action === TASK_ACTION_VIDEO_GENERATE;
+
+        const isImageTask = record.action === TASK_ACTION_IMAGE_GENERATE;
+
         const isSuccess = record.status === 'SUCCESS';
         const isUrl = typeof text === 'string' && /^https?:\/\//.test(text);
+
+        // 视频任务：显示"点击预览视频"
         if (isSuccess && isVideoTask && isUrl) {
           const videoUrl = `/v1/videos/${record.task_id}/content`;
           return (
@@ -384,6 +405,23 @@ export const getTaskLogsColumns = ({
             </a>
           );
         }
+
+        // 图片任务：显示"点击查看图片"
+        if (isSuccess && isImageTask && isUrl) {
+          return (
+            <a
+              href={text}
+              target='_blank'
+              rel='noopener noreferrer'
+              onClick={(e) => {
+                e.stopPropagation();
+              }}
+            >
+              {t('点击查看图片')}
+            </a>
+          );
+        }
+
         if (!text) {
           return t('无');
         }

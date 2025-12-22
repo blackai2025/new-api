@@ -99,8 +99,15 @@ func SetRelayRouter(router *gin.Engine) {
 			controller.Relay(c, types.RelayFormatOpenAIImage)
 		})
 		httpRouter.POST("/images/generations", func(c *gin.Context) {
-			controller.Relay(c, types.RelayFormatOpenAIImage)
+			// 检查是否是 APIMart 渠道
+			channelType := c.GetInt("channel_type")
+			if channelType == constant.ChannelTypeAPIMart {
+				controller.RelayTask(c)
+			} else {
+				controller.Relay(c, types.RelayFormatOpenAIImage)
+			}
 		})
+		httpRouter.GET("/images/generations/:task_id", controller.RelayTask)
 		httpRouter.POST("/images/edits", func(c *gin.Context) {
 			controller.Relay(c, types.RelayFormatOpenAIImage)
 		})
