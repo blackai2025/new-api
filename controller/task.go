@@ -77,8 +77,10 @@ func UpdateTaskByPlatform(platform constant.TaskPlatform, taskChannelM map[int][
 		//_ = UpdateMidjourneyTaskAll(context.Background(), tasks)
 	case constant.TaskPlatformSuno:
 		_ = UpdateSunoTaskAll(context.Background(), taskChannelM, taskM)
-	case constant.TaskPlatformAPIMart, "58", "57": // APIMart 的 platform 可能是 "apimart"、"58" 或 "57"
+	case constant.TaskPlatformAPIMart: // APIMart 平台（渠道类型 58）
 		_ = UpdateAPIMartTaskAll(context.Background(), taskChannelM, taskM)
+	case constant.TaskPlatformKieAI: // Kie.ai 平台（渠道类型 59）
+		_ = UpdateKieAITaskAll(context.Background(), taskChannelM, taskM)
 	default:
 		if err := UpdateVideoTaskAll(context.Background(), platform, taskChannelM, taskM); err != nil {
 			common.SysLog(fmt.Sprintf("UpdateVideoTaskAll fail: %s", err))
@@ -391,6 +393,105 @@ func updateAPIMartTaskAll(ctx context.Context, channelId int, taskIds []string, 
 
 		if err := task.Update(); err != nil {
 			logger.LogError(ctx, fmt.Sprintf("更新任务 %s 失败: %v", taskId, err))
+		}
+	}
+
+	return nil
+}
+
+// UpdateKieAITaskAll Kie.ai 统一任务轮询
+func UpdateKieAITaskAll(ctx context.Context, taskChannelM map[int][]string, taskM map[string]*model.Task) error {
+	for channelId, taskIds := range taskChannelM {
+		if err := updateKieAITaskAll(ctx, channelId, taskIds, taskM); err != nil {
+			logger.LogError(ctx, fmt.Sprintf("渠道 #%d 更新 Kie.ai 任务失败: %s", channelId, err.Error()))
+		}
+	}
+	return nil
+}
+
+func updateKieAITaskAll(ctx context.Context, channelId int, taskIds []string, taskM map[string]*model.Task) error {
+	logger.LogInfo(ctx, fmt.Sprintf("渠道 #%d 未完成的 Kie.ai 任务有: %d", channelId, len(taskIds)))
+	if len(taskIds) == 0 {
+		return nil
+	}
+
+	channel, err := model.CacheGetChannel(channelId)
+	if err != nil {
+		common.SysLog(fmt.Sprintf("CacheGetChannel: %v", err))
+		err = model.TaskBulkUpdate(taskIds, map[string]any{
+			"fail_reason": fmt.Sprintf("获取渠道信息失败，请联系管理员，渠道ID：%d", channelId),
+			"status":      "FAILURE",
+			"progress":    "100%",
+		})
+		if err != nil {
+			common.SysLog(fmt.Sprintf("UpdateKieAITask error: %v", err))
+		}
+		return err
+	}
+
+	adaptor := relay.GetTaskAdaptor(constant.TaskPlatformKieAI)
+	if adaptor == nil {
+		return errors.New("KieAI adaptor not found")
+	}
+
+	proxy := channel.GetSetting().Proxy
+
+	for _, taskId := range taskIds {
+		task := taskM[taskId]
+		if task == nil {
+			logger.LogError(ctx, fmt.Sprintf("任务 %s 在任务映射中未找到", taskId))
+			continue
+		}
+
+		// 根据任务的 action 判断类型
+		taskType := "video"
+		if task.Action == constant.TaskActionImageGenerate {
+			taskType = "image"
+		}
+
+		resp, err := adaptor.FetchTask(channel.GetBaseURL(), channel.Key, map[string]any{
+			"task_id":   taskId,
+			"task_type": taskType,
+		}, proxy)
+
+		if err != nil {
+			logger.LogError(ctx, fmt.Sprintf("查询 Kie.ai 任务 %s 失败: %v", taskId, err))
+			continue
+		}
+
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+
+		taskInfo, err := adaptor.ParseTaskResult(body)
+		if err != nil {
+			logger.LogError(ctx, fmt.Sprintf("解析 Kie.ai 任务 %s 结果失败: %v", taskId, err))
+			continue
+		}
+
+		// 更新任务状态
+		oldStatus := task.Status
+		task.Status = model.TaskStatus(taskInfo.Status)
+		task.Progress = taskInfo.Progress
+		if taskInfo.Url != "" {
+			task.FailReason = taskInfo.Url // 存储结果 URL
+		}
+
+		// 当任务完成或失败时，设置结束时间
+		if (task.Status == model.TaskStatusSuccess || task.Status == model.TaskStatusFailure) && task.FinishTime == 0 {
+			task.FinishTime = time.Now().Unix()
+		}
+
+		// 失败退款（防止重复退款）
+		if task.Status == model.TaskStatusFailure && oldStatus != model.TaskStatusFailure && task.Quota != 0 {
+			_ = model.IncreaseUserQuota(task.UserId, task.Quota, false)
+			logContent := fmt.Sprintf("%s生成失败 %s，退还额度 %s",
+				taskType, task.TaskID, logger.LogQuota(task.Quota))
+			model.RecordLog(task.UserId, model.LogTypeSystem, logContent)
+			logger.LogInfo(ctx, logContent)
+		}
+
+		if err := task.Update(); err != nil {
+			logger.LogError(ctx, fmt.Sprintf("更新 Kie.ai 任务 %s 失败: %v", taskId, err))
 		}
 	}
 

@@ -26,7 +26,7 @@
 ### 修改文件（8 个）
 
 1. `constant/task.go` - 添加 APIMart 平台常量和任务动作
-2. `constant/channel.go` - 添加 APIMart 渠道类型（57）
+2. `constant/channel.go` - 添加 APIMart 渠道类型（58）
 3. `relay/relay_adaptor.go` - 注册 APIMart 适配器
 4. `router/relay-router.go` - 图片生成路由支持 APIMart
 5. `router/video-router.go` - 添加视频生成路由
@@ -68,7 +68,7 @@
 
 ```yaml
 渠道名称: APIMart 统一渠道
-渠道类型: APIMart (57)
+渠道类型: APIMart (58)
 Base URL: https://api.apimart.ai
 API Key: your_apimart_key
 

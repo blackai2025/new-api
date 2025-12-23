@@ -257,7 +257,16 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 		}
 	}
 	if strings.HasPrefix(c.Request.URL.Path, "/v1/images/generations") {
-		modelRequest.Model = common.GetStringIfEmpty(modelRequest.Model, "dall-e")
+		if c.Request.Method == http.MethodGet {
+			// 图片任务查询，不需要选择渠道
+			relayMode := relayconstant.RelayModeImagesGenerations
+			c.Set("relay_mode", relayMode)
+			c.Set("task_id", c.Param("task_id"))
+			shouldSelectChannel = false
+		} else {
+			// POST 请求需要模型选择
+			modelRequest.Model = common.GetStringIfEmpty(modelRequest.Model, "dall-e")
+		}
 	} else if strings.HasPrefix(c.Request.URL.Path, "/v1/images/edits") {
 		//modelRequest.Model = common.GetStringIfEmpty(c.PostForm("model"), "gpt-image-1")
 		contentType := c.ContentType()

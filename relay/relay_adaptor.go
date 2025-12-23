@@ -32,6 +32,7 @@ import (
 	taskali "github.com/QuantumNous/new-api/relay/channel/task/ali"
 	taskapimart "github.com/QuantumNous/new-api/relay/channel/task/apimart"
 	taskdoubao "github.com/QuantumNous/new-api/relay/channel/task/doubao"
+	taskkieai "github.com/QuantumNous/new-api/relay/channel/task/kieai"
 	taskGemini "github.com/QuantumNous/new-api/relay/channel/task/gemini"
 	"github.com/QuantumNous/new-api/relay/channel/task/hailuo"
 	taskjimeng "github.com/QuantumNous/new-api/relay/channel/task/jimeng"
@@ -138,6 +139,8 @@ func GetTaskAdaptor(platform constant.TaskPlatform) channel.TaskAdaptor {
 		return &suno.TaskAdaptor{}
 	case constant.TaskPlatformAPIMart:
 		return &taskapimart.TaskAdaptor{}
+	case constant.TaskPlatformKieAI:
+		return &taskkieai.TaskAdaptor{}
 	}
 	if channelType, err := strconv.ParseInt(string(platform), 10, 64); err == nil {
 		switch channelType {
@@ -161,6 +164,8 @@ func GetTaskAdaptor(platform constant.TaskPlatform) channel.TaskAdaptor {
 			return &hailuo.TaskAdaptor{}
 		case constant.ChannelTypeAPIMart:
 			return &taskapimart.TaskAdaptor{}
+		case constant.ChannelTypeKieAI:
+			return &taskkieai.TaskAdaptor{}
 		}
 	}
 	return nil

@@ -7,24 +7,66 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 )
 
+// ==================== 统一响应格式（对外暴露） ====================
+
+// GenerationTaskResponse 统一的异步任务响应格式
+type GenerationTaskResponse struct {
+	ID          string                 `json:"id"`
+	Object      string                 `json:"object"`
+	Model       string                 `json:"model"`
+	Status      string                 `json:"status"`
+	Progress    int                    `json:"progress"`
+	CreatedAt   int64                  `json:"created_at"`
+	CompletedAt int64                  `json:"completed_at,omitempty"`
+	ExpiresAt   int64                  `json:"expires_at,omitempty"`
+	Result      *GenerationResult      `json:"result,omitempty"`
+	Error       *GenerationError       `json:"error,omitempty"`
+	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+}
+
+// GenerationResult 生成结果
+type GenerationResult struct {
+	Type string               `json:"type"` // "image" or "video"
+	Data []GenerationDataItem `json:"data"`
+}
+
+// GenerationDataItem 生成数据项
+type GenerationDataItem struct {
+	URL           string `json:"url"`
+	RevisedPrompt string `json:"revised_prompt,omitempty"`
+	Duration      int    `json:"duration,omitempty"`
+	Size          string `json:"size,omitempty"`
+	Format        string `json:"format,omitempty"`
+}
+
+// GenerationError 错误信息
+type GenerationError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+// ==================== APIMart 上游响应结构 ====================
+
 // APIMart 提交响应结构（data 是数组）
 type APIMartSubmitResponse struct {
-	Code      int                `json:"code"`
-	Data      []APIMartTaskData  `json:"data"`
-	ImageURLs []string           `json:"image_urls,omitempty"` // 快速生成时直接返回
-	VideoURLs []string           `json:"video_urls,omitempty"` // 快速生成时直接返回
+	Code      int               `json:"code"`
+	Data      []APIMartTaskData `json:"data"`
+	ImageURLs []string          `json:"image_urls,omitempty"` // 快速生成时直接返回
+	VideoURLs []string          `json:"video_urls,omitempty"` // 快速生成时直接返回
 }
 
 type APIMartTaskData struct {
@@ -36,19 +78,19 @@ type APIMartTaskData struct {
 
 // APIMart 查询响应结构（/v1/tasks/{task_id} 返回格式）
 type APIMartQueryResponse struct {
-	Code int                 `json:"code"` // 200 表示成功
-	Data APIMartQueryData    `json:"data"`
+	Code int              `json:"code"` // 200 表示成功
+	Data APIMartQueryData `json:"data"`
 }
 
 type APIMartQueryData struct {
-	ID            string            `json:"id"`
-	Status        string            `json:"status"`        // "completed", "processing", etc.
-	Progress      int               `json:"progress"`      // 0-100 整数
-	ActualTime    int               `json:"actual_time"`
-	EstimatedTime int               `json:"estimated_time"`
-	Created       int64             `json:"created"`
-	Completed     int64             `json:"completed"`
-	Result        APIMartResult     `json:"result"`
+	ID            string        `json:"id"`
+	Status        string        `json:"status"`   // "completed", "processing", etc.
+	Progress      int           `json:"progress"` // 0-100 整数
+	ActualTime    int           `json:"actual_time"`
+	EstimatedTime int           `json:"estimated_time"`
+	Created       int64         `json:"created"`
+	Completed     int64         `json:"completed"`
+	Result        APIMartResult `json:"result"`
 }
 
 type APIMartResult struct {
@@ -188,11 +230,11 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 	}
 
 	// 提取任务ID和可能的立即返回的 URL
+	var immediateURL string
 	if len(apiResponse.Data) > 0 {
 		taskID = apiResponse.Data[0].TaskID
 
 		// 如果提交响应中直接包含 URL（快速生成），保存到 context 供后续使用
-		var immediateURL string
 		if len(apiResponse.Data[0].ImageURLs) > 0 {
 			immediateURL = apiResponse.Data[0].ImageURLs[0]
 		} else if len(apiResponse.Data[0].VideoURLs) > 0 {
@@ -208,12 +250,46 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 		}
 	}
 
-	taskData = responseBody
+	// 获取模型名称
+	modelName := info.OriginModelName
 
-	// 返回给用户
+	// 构建统一响应格式
+	unifiedResponse := GenerationTaskResponse{
+		ID:        taskID,
+		Object:    "generation.task",
+		Model:     modelName,
+		Status:    mapStatusToUnified(apiResponse.Data[0].Status),
+		Progress:  0,
+		CreatedAt: time.Now().Unix(),
+		Metadata:  make(map[string]interface{}),
+	}
+
+	// 如果有立即返回的 URL，标记为已完成
+	if immediateURL != "" {
+		unifiedResponse.Status = "completed"
+		unifiedResponse.Progress = 100
+		unifiedResponse.CompletedAt = time.Now().Unix()
+		unifiedResponse.ExpiresAt = time.Now().Add(24 * time.Hour).Unix()
+		unifiedResponse.Result = &GenerationResult{
+			Type: a.taskType,
+			Data: []GenerationDataItem{
+				{URL: immediateURL},
+			},
+		}
+	}
+
+	// 序列化统一响应
+	unifiedResponseData, err := json.Marshal(unifiedResponse)
+	if err != nil {
+		return "", nil, service.TaskErrorWrapper(err, "marshal_response_failed", http.StatusInternalServerError)
+	}
+
+	taskData = unifiedResponseData
+
+	// 返回统一格式给用户
 	c.Writer.Header().Set("Content-Type", "application/json")
 	c.Writer.WriteHeader(http.StatusOK)
-	_, _ = c.Writer.Write(responseBody)
+	_, _ = c.Writer.Write(unifiedResponseData)
 
 	return taskID, taskData, nil
 }
@@ -285,7 +361,140 @@ func (a *TaskAdaptor) GetChannelName() string {
 	return ChannelName
 }
 
-// 统一状态映射（支持大小写）
+// ConvertToOpenAIVideo 实现 OpenAIVideoConverter 接口，将任务转换为统一响应格式
+func (a *TaskAdaptor) ConvertToOpenAIVideo(originTask *model.Task) ([]byte, error) {
+	status := mapStatusToUnified(string(originTask.Status))
+
+	response := &GenerationTaskResponse{
+		ID:        originTask.TaskID,
+		Object:    "generation.task",
+		Model:     originTask.Properties.OriginModelName,
+		Status:    status,
+		CreatedAt: originTask.SubmitTime,
+		Metadata:  make(map[string]interface{}),
+	}
+
+	// 解析进度
+	if originTask.Progress != "" {
+		progressStr := strings.TrimSuffix(originTask.Progress, "%")
+		if p, err := strconv.Atoi(progressStr); err == nil {
+			response.Progress = p
+		}
+	}
+
+	// 如果完成，填充结果
+	if status == "completed" {
+		response.CompletedAt = originTask.FinishTime
+		response.Progress = 100
+		response.ExpiresAt = originTask.FinishTime + 24*3600 // 24小时后过期
+
+		// FailReason 存储的是结果 URL
+		if originTask.FailReason != "" && !strings.HasPrefix(originTask.FailReason, "error") {
+			// 根据 action 判断类型
+			resultType := "video"
+			if originTask.Action == constant.TaskActionImageGenerate {
+				resultType = "image"
+			}
+
+			response.Result = &GenerationResult{
+				Type: resultType,
+				Data: []GenerationDataItem{
+					{URL: originTask.FailReason},
+				},
+			}
+
+			if resultType == "video" {
+				response.Result.Data[0].Format = "mp4"
+			}
+		}
+	}
+
+	// 如果失败，填充错误信息
+	if status == "failed" {
+		response.Error = &GenerationError{
+			Code:    "generation_failed",
+			Message: originTask.FailReason,
+		}
+		if response.Error.Message == "" {
+			response.Error.Message = "Task failed during generation"
+		}
+	}
+
+	return json.Marshal(response)
+}
+
+// ConvertQueryToUnified 将查询响应转换为统一格式
+func (a *TaskAdaptor) ConvertQueryToUnified(apiResponse *APIMartQueryResponse, modelName string) *GenerationTaskResponse {
+	data := apiResponse.Data
+	status := mapStatusToUnified(data.Status)
+
+	response := &GenerationTaskResponse{
+		ID:        data.ID,
+		Object:    "generation.task",
+		Model:     modelName,
+		Status:    status,
+		Progress:  data.Progress,
+		CreatedAt: data.Created,
+		Metadata:  make(map[string]interface{}),
+	}
+
+	// 如果完成，填充结果
+	if status == "completed" {
+		response.CompletedAt = data.Completed
+		response.Progress = 100
+
+		// 检测结果类型并构建 result
+		if len(data.Result.Images) > 0 && len(data.Result.Images[0].URL) > 0 {
+			response.Result = &GenerationResult{
+				Type: "image",
+				Data: make([]GenerationDataItem, 0),
+			}
+			for _, img := range data.Result.Images {
+				for _, url := range img.URL {
+					response.Result.Data = append(response.Result.Data, GenerationDataItem{
+						URL: url,
+					})
+				}
+				if img.ExpiresAt > 0 {
+					response.ExpiresAt = img.ExpiresAt
+				}
+			}
+		} else if len(data.Result.Videos) > 0 && len(data.Result.Videos[0].URL) > 0 {
+			response.Result = &GenerationResult{
+				Type: "video",
+				Data: make([]GenerationDataItem, 0),
+			}
+			for _, vid := range data.Result.Videos {
+				for _, url := range vid.URL {
+					response.Result.Data = append(response.Result.Data, GenerationDataItem{
+						URL:    url,
+						Format: "mp4",
+					})
+				}
+				if vid.ExpiresAt > 0 {
+					response.ExpiresAt = vid.ExpiresAt
+				}
+			}
+		}
+
+		// 如果没有设置过期时间，默认 24 小时
+		if response.ExpiresAt == 0 {
+			response.ExpiresAt = time.Now().Add(24 * time.Hour).Unix()
+		}
+	}
+
+	// 如果失败，填充错误信息
+	if status == "failed" {
+		response.Error = &GenerationError{
+			Code:    "generation_failed",
+			Message: "Task failed during generation",
+		}
+	}
+
+	return response
+}
+
+// mapStatus 状态映射（用于内部任务管理）
 func mapStatus(status string) string {
 	switch strings.ToLower(status) {
 	case "submitted", "queued", "pending":
@@ -301,11 +510,27 @@ func mapStatus(status string) string {
 	}
 }
 
+// mapStatusToUnified 状态映射为统一 API 格式（对外暴露）
+func mapStatusToUnified(status string) string {
+	switch strings.ToLower(status) {
+	case "submitted", "queued", "pending":
+		return "queued"
+	case "processing", "in_progress", "running":
+		return "in_progress"
+	case "succeeded", "completed", "success":
+		return "completed"
+	case "failed", "error", "failure":
+		return "failed"
+	default:
+		return "queued"
+	}
+}
+
 func calculateProgress(status string) string {
 	switch status {
-	case "SUCCESS":
+	case "SUCCESS", "completed":
 		return "100%"
-	case "IN_PROGRESS":
+	case "IN_PROGRESS", "in_progress":
 		return "50%"
 	default:
 		return "0%"

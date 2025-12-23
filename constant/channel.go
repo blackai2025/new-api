@@ -55,6 +55,7 @@ const (
 	ChannelTypeSora           = 55
 	ChannelTypeReplicate      = 56
 	ChannelTypeAPIMart        = 58
+	ChannelTypeKieAI          = 59
 	ChannelTypeDummy          // this one is only for count, do not add any channel after this
 
 )
@@ -119,6 +120,7 @@ var ChannelBaseURLs = []string{
 	"https://api.replicate.com",                 //56
 	"",                                          //57
 	"https://api.apimart.ai",                    //58
+	"https://api.kie.ai",                        //59
 }
 
 var ChannelTypeNames = map[int]string{
@@ -176,6 +178,7 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeSora:           "Sora",
 	ChannelTypeReplicate:      "Replicate",
 	ChannelTypeAPIMart:        "APIMart",
+	ChannelTypeKieAI:          "KieAI",
 }
 
 func GetChannelTypeName(channelType int) string {

@@ -189,6 +189,11 @@ export const CHANNEL_OPTIONS = [
     color: 'purple',
     label: 'APIMart',
   },
+  {
+    value: 59,
+    color: 'cyan',
+    label: 'Kie.ai',
+  },
 ];
 
 export const MODEL_TABLE_PAGE_SIZE = 10;

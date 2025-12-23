@@ -333,9 +333,10 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *dto.
 }
 
 var fetchRespBuilders = map[int]func(c *gin.Context) (respBody []byte, taskResp *dto.TaskError){
-	relayconstant.RelayModeSunoFetchByID:  sunoFetchByIDRespBodyBuilder,
-	relayconstant.RelayModeSunoFetch:      sunoFetchRespBodyBuilder,
-	relayconstant.RelayModeVideoFetchByID: videoFetchByIDRespBodyBuilder,
+	relayconstant.RelayModeSunoFetchByID:     sunoFetchByIDRespBodyBuilder,
+	relayconstant.RelayModeSunoFetch:         sunoFetchRespBodyBuilder,
+	relayconstant.RelayModeVideoFetchByID:    videoFetchByIDRespBodyBuilder,
+	relayconstant.RelayModeImagesGenerations: imageFetchByIDRespBodyBuilder,
 }
 
 func RelayTaskFetch(c *gin.Context, relayMode int) (taskResp *dto.TaskError) {
@@ -363,7 +364,7 @@ func RelayTaskFetch(c *gin.Context, relayMode int) (taskResp *dto.TaskError) {
 
 func sunoFetchRespBodyBuilder(c *gin.Context) (respBody []byte, taskResp *dto.TaskError) {
 	userId := c.GetInt("id")
-	var condition = struct {
+	condition := struct {
 		IDs    []any  `json:"ids"`
 		Action string `json:"action"`
 	}{}
@@ -559,5 +560,151 @@ func TaskModel2Dto(task *model.Task) *dto.TaskDto {
 		FinishTime: task.FinishTime,
 		Progress:   task.Progress,
 		Data:       task.Data,
+	}
+}
+
+// imageFetchByIDRespBodyBuilder 图片任务查询处理器
+func imageFetchByIDRespBodyBuilder(c *gin.Context) (respBody []byte, taskResp *dto.TaskError) {
+	taskId := c.Param("task_id")
+	if taskId == "" {
+		taskId = c.GetString("task_id")
+	}
+	userId := c.GetInt("id")
+
+	originTask, exist, err := model.GetByTaskId(userId, taskId)
+	if err != nil {
+		taskResp = service.TaskErrorWrapper(err, "get_task_failed", http.StatusInternalServerError)
+		return
+	}
+	if !exist {
+		taskResp = service.TaskErrorWrapperLocal(errors.New("task_not_exist"), "task_not_exist", http.StatusNotFound)
+		return
+	}
+
+	// 尝试获取适配器
+	adaptor := GetTaskAdaptor(originTask.Platform)
+
+	// 如果找不到适配器（platform 为空或不支持），尝试根据渠道类型推断
+	if adaptor == nil && originTask.ChannelId > 0 {
+		channelModel, err := model.GetChannelById(originTask.ChannelId, true)
+		if err == nil && channelModel != nil {
+			platform := inferPlatformFromChannelType(channelModel.Type)
+			if platform != "" {
+				adaptor = GetTaskAdaptor(platform)
+			}
+		}
+	}
+
+	// 如果有适配器且实现了 OpenAIVideoConverter 接口，使用适配器转换
+	if adaptor != nil {
+		if converter, ok := adaptor.(channel.OpenAIVideoConverter); ok {
+			respBody, err = converter.ConvertToOpenAIVideo(originTask)
+			if err != nil {
+				taskResp = service.TaskErrorWrapper(err, "convert_response_failed", http.StatusInternalServerError)
+				return
+			}
+			return
+		}
+	}
+
+	// 回退到统一格式（不依赖适配器）
+	respBody, err = buildUnifiedTaskResponse(originTask)
+	if err != nil {
+		taskResp = service.TaskErrorWrapper(err, "marshal_response_failed", http.StatusInternalServerError)
+	}
+	return
+}
+
+// inferPlatformFromChannelType 根据渠道类型推断平台
+func inferPlatformFromChannelType(channelType int) constant.TaskPlatform {
+	switch channelType {
+	case constant.ChannelTypeAPIMart:
+		return constant.TaskPlatformAPIMart
+	case constant.ChannelTypeKieAI:
+		return constant.TaskPlatformKieAI
+	case constant.ChannelTypeSunoAPI:
+		return constant.TaskPlatformSuno
+	// 其他渠道类型使用字符串值（用于 GetTaskAdaptor 查找）
+	case constant.ChannelTypeSora:
+		return constant.TaskPlatform(strconv.Itoa(channelType))
+	case constant.ChannelTypeKling:
+		return constant.TaskPlatform(strconv.Itoa(channelType))
+	case constant.ChannelTypeJimeng:
+		return constant.TaskPlatform(strconv.Itoa(channelType))
+	case constant.ChannelTypeVidu:
+		return constant.TaskPlatform(strconv.Itoa(channelType))
+	case constant.ChannelTypeDoubaoVideo:
+		return constant.TaskPlatform(strconv.Itoa(channelType))
+	case constant.ChannelTypeAli:
+		return constant.TaskPlatform(strconv.Itoa(channelType))
+	case constant.ChannelTypeGemini, constant.ChannelTypeVertexAi:
+		return constant.TaskPlatform(strconv.Itoa(channelType))
+	default:
+		return ""
+	}
+}
+
+// buildUnifiedTaskResponse 构建统一的任务响应格式
+func buildUnifiedTaskResponse(task *model.Task) ([]byte, error) {
+	status := mapTaskStatusToUnified(string(task.Status))
+	progress := 0
+	if task.Progress != "" {
+		progressStr := strings.TrimSuffix(task.Progress, "%")
+		progress, _ = strconv.Atoi(progressStr)
+	}
+
+	response := map[string]interface{}{
+		"id":         task.TaskID,
+		"object":     "generation.task",
+		"model":      task.Properties.OriginModelName,
+		"status":     status,
+		"progress":   progress,
+		"created_at": task.SubmitTime,
+		"metadata":   map[string]interface{}{},
+	}
+
+	if task.FinishTime > 0 {
+		response["completed_at"] = task.FinishTime
+	}
+
+	// 如果成功且有结果 URL
+	if status == "completed" && task.FailReason != "" && !strings.HasPrefix(task.FailReason, "error") {
+		resultType := "image"
+		if task.Action == constant.TaskActionVideoGenerate {
+			resultType = "video"
+		}
+		response["result"] = map[string]interface{}{
+			"type": resultType,
+			"data": []map[string]interface{}{
+				{"url": task.FailReason},
+			},
+		}
+		response["expires_at"] = task.FinishTime + 24*3600
+	}
+
+	// 如果失败
+	if status == "failed" {
+		response["error"] = map[string]interface{}{
+			"code":    "generation_failed",
+			"message": task.FailReason,
+		}
+	}
+
+	return json.Marshal(response)
+}
+
+// mapTaskStatusToUnified 将内部状态映射为统一 API 状态
+func mapTaskStatusToUnified(status string) string {
+	switch status {
+	case string(model.TaskStatusNotStart), string(model.TaskStatusQueued), string(model.TaskStatusSubmitted):
+		return "queued"
+	case string(model.TaskStatusInProgress):
+		return "in_progress"
+	case string(model.TaskStatusSuccess):
+		return "completed"
+	case string(model.TaskStatusFailure):
+		return "failed"
+	default:
+		return "queued"
 	}
 }

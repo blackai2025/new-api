@@ -454,6 +454,13 @@ func taskRelayHandler(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dto.Tas
 	switch relayInfo.RelayMode {
 	case relayconstant.RelayModeSunoFetch, relayconstant.RelayModeSunoFetchByID, relayconstant.RelayModeVideoFetchByID:
 		err = relay.RelayTaskFetch(c, relayInfo.RelayMode)
+	case relayconstant.RelayModeImagesGenerations:
+		// 图片任务：GET 请求为查询，POST 请求为提交
+		if c.Request.Method == http.MethodGet {
+			err = relay.RelayTaskFetch(c, relayInfo.RelayMode)
+		} else {
+			err = relay.RelayTaskSubmit(c, relayInfo)
+		}
 	default:
 		err = relay.RelayTaskSubmit(c, relayInfo)
 	}
