@@ -253,6 +253,7 @@ export const getTaskLogsColumns = ({
   openContentModal,
   isAdminUser,
   openVideoModal,
+  openImageModal,
 }) => {
   return [
     {
@@ -392,7 +393,16 @@ export const getTaskLogsColumns = ({
 
         // 视频任务：显示"点击预览视频"
         if (isSuccess && isVideoTask && isUrl) {
-          const videoUrl = `/v1/videos/${record.task_id}/content`;
+          // 判断是否需要使用代理 URL
+          // OpenAI/Sora 官方平台使用代理，第三方平台（如 Kie.ai、APIMart）直接使用原始 URL
+          // platform 可能是平台名称（如 'sora'）或渠道类型 ID（如 '55'）
+          const officialPlatforms = ['sora', 'openai', '55']; // 55 = OpenAI/Sora 渠道类型
+          const isOfficialPlatform = officialPlatforms.includes(
+            record.platform,
+          );
+          const videoUrl = isOfficialPlatform
+            ? `/v1/videos/${record.task_id}/content`
+            : text; // 第三方平台直接使用 fail_reason 中的原始 URL
           return (
             <a
               href='#'
@@ -406,18 +416,17 @@ export const getTaskLogsColumns = ({
           );
         }
 
-        // 图片任务：显示"点击查看图片"
+        // 图片任务：显示"点击预览图片"
         if (isSuccess && isImageTask && isUrl) {
           return (
             <a
-              href={text}
-              target='_blank'
-              rel='noopener noreferrer'
+              href='#'
               onClick={(e) => {
-                e.stopPropagation();
+                e.preventDefault();
+                openImageModal(text); // 直接使用 fail_reason 中的原始 URL
               }}
             >
-              {t('点击查看图片')}
+              {t('点击预览图片')}
             </a>
           );
         }

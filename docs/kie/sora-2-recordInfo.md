@@ -1,10 +1,10 @@
-# Sora 2 Image To Video API Documentation
+# Sora 2 Text To Video API Documentation
 
-> Generate content using the Sora 2 Image To Video model
+> Generate content using the Sora 2 Text To Video model
 
 ## Overview
 
-This document describes how to use the Sora 2 Image To Video model for content generation. The process consists of two steps:
+This document describes how to use the Sora 2 Text To Video model for content generation. The process consists of two steps:
 
 1. Create a generation task
 2. Query task status and results
@@ -35,7 +35,7 @@ Get API Key:
 
 | Parameter   | Type   | Required | Description                                                                                                                                                                                                                                                       |
 | ----------- | ------ | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| model       | string | Yes      | Model name, format: `sora-2-image-to-video`                                                                                                                                                                                                                       |
+| model       | string | Yes      | Model name, format: `sora-2-text-to-video`                                                                                                                                                                                                                        |
 | input       | object | Yes      | Input parameters object                                                                                                                                                                                                                                           |
 | callBackUrl | string | No       | Callback URL for task completion notifications. If provided, the system will send POST requests to this URL when the task completes (success or fail). If not provided, no callback notifications will be sent. Example: `"https://your-domain.com/api/callback"` |
 
@@ -43,11 +43,11 @@ Get API Key:
 
 The `model` parameter specifies which AI model to use for content generation.
 
-| Property     | Value                   | Description                                  |
-| ------------ | ----------------------- | -------------------------------------------- |
-| **Format**   | `sora-2-image-to-video` | The exact model identifier for this API      |
-| **Type**     | string                  | Must be passed as a string value             |
-| **Required** | Yes                     | This parameter is mandatory for all requests |
+| Property     | Value                  | Description                                  |
+| ------------ | ---------------------- | -------------------------------------------- |
+| **Format**   | `sora-2-text-to-video` | The exact model identifier for this API      |
+| **Type**     | string                 | Must be passed as a string value             |
+| **Required** | Yes                    | This parameter is mandatory for all requests |
 
 > **Note**: The model parameter must match exactly as shown above. Different models have different capabilities and parameter requirements.
 
@@ -78,17 +78,7 @@ The `callBackUrl` parameter allows you to receive automatic notifications when y
 - **Required**: Yes
 - **Description**: The text prompt describing the desired video motion
 - **Max Length**: 10000 characters
-- **Default Value**: `"A claymation conductor passionately leads a claymation orchestra, while the entire group joyfully sings in chorus the phrase: “Sora 2 is now available on Kie AI."`
-
-#### image_urls
-
-- **Type**: `array`
-- **Required**: Yes
-- **Description**: URL of the image to use as the first frame. Must be publicly accessible
-- **Max File Size**: 10MB
-- **Accepted File Types**: image/jpeg, image/png, image/webp
-- **Multiple Files**: Yes
-- **Default Value**: `["https://file.aiquickdraw.com/custom-page/akr/section-images/17594315607644506ltpf.jpg"]`
+- **Default Value**: `"A professor stands at the front of a lively classroom, enthusiastically giving a lecture. On the blackboard behind him are colorful chalk diagrams. With an animated gesture, he declares to the students: “Sora 2 is now available on Kie AI, making it easier than ever to create stunning videos.” The students listen attentively, some smiling and taking notes."`
 
 #### aspect_ratio
 
@@ -121,12 +111,9 @@ The `callBackUrl` parameter allows you to receive automatic notifications when y
 
 ```json
 {
-  "model": "sora-2-image-to-video",
+  "model": "sora-2-text-to-video",
   "input": {
-    "prompt": "A claymation conductor passionately leads a claymation orchestra, while the entire group joyfully sings in chorus the phrase: “Sora 2 is now available on Kie AI.",
-    "image_urls": [
-      "https://file.aiquickdraw.com/custom-page/akr/section-images/17594315607644506ltpf.jpg"
-    ],
+    "prompt": "A professor stands at the front of a lively classroom, enthusiastically giving a lecture. On the blackboard behind him are colorful chalk diagrams. With an animated gesture, he declares to the students: “Sora 2 is now available on Kie AI, making it easier than ever to create stunning videos.” The students listen attentively, some smiling and taking notes.",
     "aspect_ratio": "landscape",
     "n_frames": "10",
     "remove_watermark": true
@@ -177,10 +164,10 @@ GET https://api.kie.ai/api/v1/jobs/recordInfo?taskId=281e5b0********************
   "msg": "success",
   "data": {
     "taskId": "281e5b0*********************f39b9",
-    "model": "sora-2-image-to-video",
+    "model": "sora-2-text-to-video",
     "state": "waiting",
-    "param": "{\"model\":\"sora-2-image-to-video\",\"input\":{\"prompt\":\"A claymation conductor passionately leads a claymation orchestra, while the entire group joyfully sings in chorus the phrase: “Sora 2 is now available on Kie AI.\",\"image_urls\":[\"https://file.aiquickdraw.com/custom-page/akr/section-images/17594315607644506ltpf.jpg\"],\"aspect_ratio\":\"landscape\",\"n_frames\":\"10\",\"remove_watermark\":true}}",
-    "resultJson": "{\"resultUrls\":[\"https://file.aiquickdraw.com/custom-page/akr/section-images/1759431520451z8pcjrkk.mp4\"]}",
+    "param": "{\"model\":\"sora-2-text-to-video\",\"input\":{\"prompt\":\"A professor stands at the front of a lively classroom, enthusiastically giving a lecture. On the blackboard behind him are colorful chalk diagrams. With an animated gesture, he declares to the students: “Sora 2 is now available on Kie AI, making it easier than ever to create stunning videos.” The students listen attentively, some smiling and taking notes.\",\"aspect_ratio\":\"landscape\",\"n_frames\":\"10\",\"remove_watermark\":true}}",
+    "resultJson": "{\"resultUrls\":[\"https://file.aiquickdraw.com/custom-page/akr/section-images/1759432328669pkhobl0t.mp4\"]}",
     "failCode": null,
     "failMsg": null,
     "costTime": null,

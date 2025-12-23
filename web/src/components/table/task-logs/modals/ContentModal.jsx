@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 
 import React, { useState, useEffect } from 'react';
 import { Modal, Button, Typography, Spin } from '@douyinfe/semi-ui';
-import { IconExternalOpen, IconCopy } from '@douyinfe/semi-icons';
+import { IconExternalOpen, IconCopy, IconDownload } from '@douyinfe/semi-icons';
 import { useTranslation } from 'react-i18next';
 
 const { Text } = Typography;
@@ -29,9 +29,11 @@ const ContentModal = ({
   setIsModalOpen,
   modalContent,
   isVideo,
+  isImage,
 }) => {
   const { t } = useTranslation();
   const [videoError, setVideoError] = useState(false);
+  const [imageError, setImageError] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
@@ -39,7 +41,11 @@ const ContentModal = ({
       setVideoError(false);
       setIsLoading(true);
     }
-  }, [isModalOpen, isVideo]);
+    if (isModalOpen && isImage) {
+      setImageError(false);
+      setIsLoading(true);
+    }
+  }, [isModalOpen, isVideo, isImage]);
 
   const handleVideoError = () => {
     setVideoError(true);
@@ -56,6 +62,21 @@ const ContentModal = ({
 
   const handleOpenInNewTab = () => {
     window.open(modalContent, '_blank');
+  };
+
+  const handleDownload = () => {
+    // 创建一个隐藏的 a 标签来下载文件
+    const link = document.createElement('a');
+    link.href = modalContent;
+    // 从 URL 中提取文件名
+    const urlParts = modalContent.split('/');
+    const fileName =
+      urlParts[urlParts.length - 1] || (isVideo ? 'video.mp4' : 'image.png');
+    link.download = fileName;
+    link.target = '_blank';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const renderVideoContent = () => {
@@ -120,32 +141,164 @@ const ContentModal = ({
     }
 
     return (
-      <div style={{ position: 'relative' }}>
-        {isLoading && (
-          <div
-            style={{
-              position: 'absolute',
-              top: '50%',
-              left: '50%',
-              transform: 'translate(-50%, -50%)',
-              zIndex: 10,
-            }}
+      <div>
+        <div style={{ position: 'relative' }}>
+          {isLoading && (
+            <div
+              style={{
+                position: 'absolute',
+                top: '50%',
+                left: '50%',
+                transform: 'translate(-50%, -50%)',
+                zIndex: 10,
+              }}
+            >
+              <Spin size='large' />
+            </div>
+          )}
+          <video
+            src={modalContent}
+            controls
+            style={{ width: '100%', maxHeight: '60vh' }}
+            autoPlay
+            crossOrigin='anonymous'
+            onError={handleVideoError}
+            onLoadedData={handleVideoLoaded}
+            onLoadStart={() => setIsLoading(true)}
+          />
+        </div>
+        <div style={{ marginTop: '16px', textAlign: 'center' }}>
+          <Button
+            icon={<IconDownload />}
+            onClick={handleDownload}
+            style={{ marginRight: '8px' }}
           >
-            <Spin size='large' />
-          </div>
-        )}
-        <video
-          src={modalContent}
-          controls
-          style={{ width: '100%' }}
-          autoPlay
-          crossOrigin='anonymous'
-          onError={handleVideoError}
-          onLoadedData={handleVideoLoaded}
-          onLoadStart={() => setIsLoading(true)}
-        />
+            {t('下载')}
+          </Button>
+          <Button icon={<IconCopy />} onClick={handleCopyUrl}>
+            {t('复制链接')}
+          </Button>
+        </div>
       </div>
     );
+  };
+
+  const handleImageError = () => {
+    setImageError(true);
+    setIsLoading(false);
+  };
+
+  const handleImageLoaded = () => {
+    setIsLoading(false);
+  };
+
+  const renderImageContent = () => {
+    if (imageError) {
+      return (
+        <div style={{ textAlign: 'center', padding: '40px' }}>
+          <Text
+            type='tertiary'
+            style={{ display: 'block', marginBottom: '16px' }}
+          >
+            {t('图片无法加载，这可能是由于：')}
+          </Text>
+          <Text
+            type='tertiary'
+            style={{ display: 'block', marginBottom: '8px', fontSize: '12px' }}
+          >
+            {t('• 图片服务商的跨域限制')}
+          </Text>
+          <Text
+            type='tertiary'
+            style={{ display: 'block', marginBottom: '16px', fontSize: '12px' }}
+          >
+            {t('• 图片链接已过期')}
+          </Text>
+
+          <div style={{ marginTop: '20px' }}>
+            <Button
+              icon={<IconExternalOpen />}
+              onClick={handleOpenInNewTab}
+              style={{ marginRight: '8px' }}
+            >
+              {t('在新标签页中打开')}
+            </Button>
+            <Button icon={<IconCopy />} onClick={handleCopyUrl}>
+              {t('复制链接')}
+            </Button>
+          </div>
+
+          <div
+            style={{
+              marginTop: '16px',
+              padding: '8px',
+              backgroundColor: '#f8f9fa',
+              borderRadius: '4px',
+            }}
+          >
+            <Text
+              type='tertiary'
+              style={{ fontSize: '10px', wordBreak: 'break-all' }}
+            >
+              {modalContent}
+            </Text>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div>
+        <div style={{ position: 'relative', textAlign: 'center' }}>
+          {isLoading && (
+            <div
+              style={{
+                position: 'absolute',
+                top: '50%',
+                left: '50%',
+                transform: 'translate(-50%, -50%)',
+                zIndex: 10,
+              }}
+            >
+              <Spin size='large' />
+            </div>
+          )}
+          <img
+            src={modalContent}
+            alt='Preview'
+            style={{
+              maxWidth: '100%',
+              maxHeight: '60vh',
+              objectFit: 'contain',
+            }}
+            onError={handleImageError}
+            onLoad={handleImageLoaded}
+          />
+        </div>
+        <div style={{ marginTop: '16px', textAlign: 'center' }}>
+          <Button
+            icon={<IconDownload />}
+            onClick={handleDownload}
+            style={{ marginRight: '8px' }}
+          >
+            {t('下载')}
+          </Button>
+          <Button icon={<IconCopy />} onClick={handleCopyUrl}>
+            {t('复制链接')}
+          </Button>
+        </div>
+      </div>
+    );
+  };
+
+  const renderContent = () => {
+    if (isVideo) {
+      return renderVideoContent();
+    }
+    if (isImage) {
+      return renderImageContent();
+    }
+    return <p style={{ whiteSpace: 'pre-line' }}>{modalContent}</p>;
   };
 
   return (
@@ -155,17 +308,13 @@ const ContentModal = ({
       onCancel={() => setIsModalOpen(false)}
       closable={null}
       bodyStyle={{
-        height: isVideo ? '450px' : '400px',
-        overflow: 'auto',
-        padding: isVideo && videoError ? '0' : '24px',
+        overflow: 'hidden',
+        padding:
+          (isVideo && videoError) || (isImage && imageError) ? '0' : '24px',
       }}
       width={800}
     >
-      {isVideo ? (
-        renderVideoContent()
-      ) : (
-        <p style={{ whiteSpace: 'pre-line' }}>{modalContent}</p>
-      )}
+      {renderContent()}
     </Modal>
   );
 };

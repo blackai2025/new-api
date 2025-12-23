@@ -71,6 +71,10 @@ export const useTaskLogsData = () => {
   const [isVideoModalOpen, setIsVideoModalOpen] = useState(false);
   const [videoUrl, setVideoUrl] = useState('');
 
+  // 新增：图片预览弹窗状态
+  const [isImageModalOpen, setIsImageModalOpen] = useState(false);
+  const [imageUrl, setImageUrl] = useState('');
+
   // Form state
   const [formApi, setFormApi] = useState(null);
   let now = new Date();
@@ -267,6 +271,12 @@ export const useTaskLogsData = () => {
     setIsVideoModalOpen(true);
   };
 
+  // 新增：打开图片预览弹窗
+  const openImageModal = (url) => {
+    setImageUrl(url);
+    setIsImageModalOpen(true);
+  };
+
   // Initialize data
   useEffect(() => {
     const localPageSize =
@@ -293,6 +303,11 @@ export const useTaskLogsData = () => {
     isVideoModalOpen,
     setIsVideoModalOpen,
     videoUrl,
+
+    // 新增：图片弹窗状态
+    isImageModalOpen,
+    setIsImageModalOpen,
+    imageUrl,
 
     // Form state
     formApi,
@@ -321,6 +336,7 @@ export const useTaskLogsData = () => {
     copyText,
     openContentModal,
     openVideoModal, // 新增
+    openImageModal, // 新增
     enrichLogs,
     syncPageData,
 

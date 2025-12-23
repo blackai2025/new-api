@@ -45,6 +45,13 @@ const TaskLogsPage = () => {
         modalContent={taskLogsData.videoUrl}
         isVideo={true}
       />
+      {/* 新增：图片预览弹窗 */}
+      <ContentModal
+        isModalOpen={taskLogsData.isImageModalOpen}
+        setIsModalOpen={taskLogsData.setIsImageModalOpen}
+        modalContent={taskLogsData.imageUrl}
+        isImage={true}
+      />
 
       <Layout>
         <CardPro
