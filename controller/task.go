@@ -452,6 +452,7 @@ func updateKieAITaskAll(ctx context.Context, channelId int, taskIds []string, ta
 		resp, err := adaptor.FetchTask(channel.GetBaseURL(), channel.Key, map[string]any{
 			"task_id":   taskId,
 			"task_type": taskType,
+			"model":     task.Properties.OriginModelName,
 		}, proxy)
 
 		if err != nil {

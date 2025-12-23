@@ -2,35 +2,52 @@ package kieai
 
 const ChannelName = "KieAI"
 
-// 视频模型列表
-var VideoModelList = []string{
-	"sora-2-pro",
+// ============================
+// Sora 系列模型（通用 API: /api/v1/jobs/createTask）
+// ============================
+
+// SoraTextToVideoModels 文生视频模型
+var SoraTextToVideoModels = []string{
+	"sora-2-text-to-video",
+	"sora-2-pro-text-to-video",
 }
 
-// 图片模型列表
+// SoraImageToVideoModels 图生视频模型
+var SoraImageToVideoModels = []string{
+	"sora-2-image-to-video",
+	"sora-2-pro-image-to-video",
+}
+
+// ============================
+// Veo3 系列模型（专用 API: /api/v1/veo/generate）
+// ============================
+
+var Veo3ModelList = []string{
+	"veo3",
+	"veo3_fast",
+}
+
+// ============================
+// 图片生成模型
+// ============================
+
 var ImageModelList = []string{
 	"nano-banana-pro",
 	"nano-banana",
 }
 
-// 模型名称映射：对外模型名 -> Kie.ai 内部模型名
-var ModelNameMapping = map[string]string{
-	"sora-2-pro":      "sora-2-pro-text-to-video",
-	"nano-banana-pro": "nano-banana-pro",
-	"nano-banana":     "nano-banana",
-}
+// ============================
+// 判断函数
+// ============================
 
-// GetKieModelName 获取 Kie.ai 内部模型名称
-func GetKieModelName(externalModel string) string {
-	if kieModel, ok := ModelNameMapping[externalModel]; ok {
-		return kieModel
+// IsSoraModel 判断是否为 Sora 系列模型
+func IsSoraModel(model string) bool {
+	for _, m := range SoraTextToVideoModels {
+		if m == model {
+			return true
+		}
 	}
-	return externalModel
-}
-
-// IsVideoModel 判断是否为视频模型
-func IsVideoModel(model string) bool {
-	for _, m := range VideoModelList {
+	for _, m := range SoraImageToVideoModels {
 		if m == model {
 			return true
 		}
@@ -38,7 +55,27 @@ func IsVideoModel(model string) bool {
 	return false
 }
 
-// IsImageModel 判断是否为图片模型
+// IsSoraImageToVideoModel 判断是否为 Sora 图生视频模型
+func IsSoraImageToVideoModel(model string) bool {
+	for _, m := range SoraImageToVideoModels {
+		if m == model {
+			return true
+		}
+	}
+	return false
+}
+
+// IsVeo3Model 判断是否为 Veo3 系列模型
+func IsVeo3Model(model string) bool {
+	for _, m := range Veo3ModelList {
+		if m == model {
+			return true
+		}
+	}
+	return false
+}
+
+// IsImageModel 判断是否为图片生成模型
 func IsImageModel(model string) bool {
 	for _, m := range ImageModelList {
 		if m == model {
@@ -48,3 +85,24 @@ func IsImageModel(model string) bool {
 	return false
 }
 
+// IsVideoModel 判断是否为视频生成模型（Sora + Veo3）
+func IsVideoModel(model string) bool {
+	return IsSoraModel(model) || IsVeo3Model(model)
+}
+
+// GetAllVideoModels 获取所有视频模型列表
+func GetAllVideoModels() []string {
+	var models []string
+	models = append(models, SoraTextToVideoModels...)
+	models = append(models, SoraImageToVideoModels...)
+	models = append(models, Veo3ModelList...)
+	return models
+}
+
+// GetAllModels 获取所有模型列表
+func GetAllModels() []string {
+	var models []string
+	models = append(models, GetAllVideoModels()...)
+	models = append(models, ImageModelList...)
+	return models
+}

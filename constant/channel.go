@@ -120,7 +120,7 @@ var ChannelBaseURLs = []string{
 	"https://api.replicate.com",                 //56
 	"",                                          //57
 	"https://api.apimart.ai",                    //58
-	"https://api.kie.ai",                        //59
+	"https://api.kie.ai/api",                        //59
 }
 
 var ChannelTypeNames = map[int]string{

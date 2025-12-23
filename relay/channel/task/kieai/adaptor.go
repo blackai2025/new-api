@@ -24,11 +24,23 @@ import (
 // Request structures
 // ============================
 
-// KieCreateTaskRequest Kie.ai 创建任务请求
+// KieCreateTaskRequest Kie.ai 通用任务 API 请求
 type KieCreateTaskRequest struct {
 	Model       string         `json:"model"`
 	Input       map[string]any `json:"input"`
 	CallBackUrl string         `json:"callBackUrl,omitempty"`
+}
+
+// Veo3GenerateRequest Veo3 专用 API 请求
+type Veo3GenerateRequest struct {
+	Prompt            string   `json:"prompt"`
+	Model             string   `json:"model"`
+	ImageUrls         []string `json:"imageUrls,omitempty"`
+	AspectRatio       string   `json:"aspectRatio,omitempty"`
+	GenerationType    string   `json:"generationType,omitempty"`
+	Seeds             int      `json:"seeds,omitempty"`
+	EnableTranslation bool     `json:"enableTranslation,omitempty"`
+	CallBackUrl       string   `json:"callBackUrl,omitempty"`
 }
 
 // ============================
@@ -68,6 +80,28 @@ type KieResultJson struct {
 	ResultObject any      `json:"resultObject,omitempty"`
 }
 
+// Veo3QueryTaskResponse Veo3 专用查询响应
+type Veo3QueryTaskResponse struct {
+	Code int    `json:"code"`
+	Msg  string `json:"msg"`
+	Data struct {
+		TaskId       string `json:"taskId"`
+		ParamJson    string `json:"paramJson"`
+		CompleteTime string `json:"completeTime"`
+		Response     struct {
+			TaskId     string   `json:"taskId"`
+			ResultUrls []string `json:"resultUrls"`
+			OriginUrls []string `json:"originUrls"`
+			Resolution string   `json:"resolution"`
+		} `json:"response"`
+		SuccessFlag  int    `json:"successFlag"` // 0=生成中, 1=成功, 2=失败, 3=生成失败
+		ErrorCode    *int   `json:"errorCode"`
+		ErrorMessage string `json:"errorMessage"`
+		CreateTime   string `json:"createTime"`
+		FallbackFlag bool   `json:"fallbackFlag"`
+	} `json:"data"`
+}
+
 // ============================
 // TaskAdaptor implementation
 // ============================
@@ -75,6 +109,7 @@ type KieResultJson struct {
 type TaskAdaptor struct {
 	ChannelType int
 	taskType    string // "video" or "image"
+	modelName   string // 保存模型名称用于路由
 }
 
 func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
@@ -114,6 +149,20 @@ func (a *TaskAdaptor) validateVideoRequest(c *gin.Context, info *relaycommon.Rel
 		)
 	}
 
+	// 保存模型名称用于后续路由
+	a.modelName = videoReq.Model
+
+	// 对于 image-to-video 模型，检查是否有图片
+	if IsSoraImageToVideoModel(videoReq.Model) {
+		if videoReq.Image == "" && len(videoReq.Images) == 0 {
+			return service.TaskErrorWrapperLocal(
+				fmt.Errorf("image is required for image-to-video model"),
+				"invalid_request",
+				http.StatusBadRequest,
+			)
+		}
+	}
+
 	info.Action = constant.TaskActionVideoGenerate
 	c.Set("task_request", videoReq)
 	return nil
@@ -134,6 +183,7 @@ func (a *TaskAdaptor) validateImageRequest(c *gin.Context, info *relaycommon.Rel
 		)
 	}
 
+	a.modelName = imageReq.Model
 	info.Action = constant.TaskActionImageGenerate
 	c.Set("task_request", imageReq)
 	return nil
@@ -141,6 +191,13 @@ func (a *TaskAdaptor) validateImageRequest(c *gin.Context, info *relaycommon.Rel
 
 func (a *TaskAdaptor) BuildRequestURL(info *relaycommon.RelayInfo) (string, error) {
 	baseURL := info.ChannelBaseUrl
+
+	// 根据模型类型选择 API 端点
+	if IsVeo3Model(a.modelName) {
+		return fmt.Sprintf("%s/api/v1/veo/generate", baseURL), nil
+	}
+
+	// Sora 和图片模型使用通用任务 API
 	return fmt.Sprintf("%s/api/v1/jobs/createTask", baseURL), nil
 }
 
@@ -156,29 +213,40 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 		return nil, fmt.Errorf("task_request not found")
 	}
 
-	var kieReq KieCreateTaskRequest
+	var reqBody []byte
+	var err error
 
 	if a.taskType == "video" {
 		videoReq := taskReq.(*relaycommon.TaskSubmitReq)
-		kieReq = a.buildVideoRequest(videoReq)
+
+		if IsVeo3Model(videoReq.Model) {
+			// Veo3 使用专用 API 格式
+			veo3Req := a.buildVeo3Request(videoReq)
+			reqBody, err = json.Marshal(veo3Req)
+		} else {
+			// Sora 使用通用任务 API 格式
+			kieReq := a.buildSoraRequest(videoReq)
+			reqBody, err = json.Marshal(kieReq)
+		}
 	} else {
 		imageReq := taskReq.(*dto.ImageRequest)
-		kieReq = a.buildImageRequest(imageReq)
+		kieReq := a.buildImageRequest(imageReq)
+		reqBody, err = json.Marshal(kieReq)
 	}
 
-	data, err := json.Marshal(kieReq)
 	if err != nil {
 		return nil, err
 	}
-	return bytes.NewReader(data), nil
+	return bytes.NewReader(reqBody), nil
 }
 
-func (a *TaskAdaptor) buildVideoRequest(req *relaycommon.TaskSubmitReq) KieCreateTaskRequest {
+// buildSoraRequest 构建 Sora 系列模型的请求
+func (a *TaskAdaptor) buildSoraRequest(req *relaycommon.TaskSubmitReq) KieCreateTaskRequest {
 	input := map[string]any{
 		"prompt": req.Prompt,
 	}
 
-	// 处理时长参数：duration 转换为 n_frames
+	// 处理时长参数
 	if req.Duration > 0 {
 		if req.Duration >= 15 {
 			input["n_frames"] = "15"
@@ -187,7 +255,7 @@ func (a *TaskAdaptor) buildVideoRequest(req *relaycommon.TaskSubmitReq) KieCreat
 		}
 	}
 
-	// 处理宽高比（从 Size 字段获取）
+	// 处理宽高比
 	if req.Size != "" {
 		aspectRatio := "landscape"
 		if req.Size == "9:16" || req.Size == "portrait" {
@@ -196,15 +264,62 @@ func (a *TaskAdaptor) buildVideoRequest(req *relaycommon.TaskSubmitReq) KieCreat
 		input["aspect_ratio"] = aspectRatio
 	}
 
+	// 对于 image-to-video 模型，添加图片参数
+	if IsSoraImageToVideoModel(req.Model) {
+		if req.Image != "" {
+			input["image_input"] = []string{req.Image}
+		} else if len(req.Images) > 0 {
+			input["image_input"] = req.Images
+		}
+	}
+
 	// 默认去水印
 	input["remove_watermark"] = true
 
 	return KieCreateTaskRequest{
-		Model: GetKieModelName(req.Model),
+		Model: req.Model,
 		Input: input,
 	}
 }
 
+// buildVeo3Request 构建 Veo3 系列模型的请求
+func (a *TaskAdaptor) buildVeo3Request(req *relaycommon.TaskSubmitReq) Veo3GenerateRequest {
+	veo3Req := Veo3GenerateRequest{
+		Prompt:            req.Prompt,
+		Model:             req.Model,
+		EnableTranslation: true, // 默认启用翻译
+	}
+
+	// 处理宽高比
+	if req.Size != "" {
+		if req.Size == "9:16" || req.Size == "portrait" {
+			veo3Req.AspectRatio = "9:16"
+		} else {
+			veo3Req.AspectRatio = "16:9"
+		}
+	} else {
+		veo3Req.AspectRatio = "16:9" // 默认横屏
+	}
+
+	// 处理图片（如果有）
+	if req.Image != "" {
+		veo3Req.ImageUrls = []string{req.Image}
+		veo3Req.GenerationType = "FIRST_AND_LAST_FRAMES_2_VIDEO"
+	} else if len(req.Images) > 0 {
+		veo3Req.ImageUrls = req.Images
+		if len(req.Images) >= 2 {
+			veo3Req.GenerationType = "FIRST_AND_LAST_FRAMES_2_VIDEO"
+		} else {
+			veo3Req.GenerationType = "FIRST_AND_LAST_FRAMES_2_VIDEO"
+		}
+	} else {
+		veo3Req.GenerationType = "TEXT_2_VIDEO"
+	}
+
+	return veo3Req
+}
+
+// buildImageRequest 构建图片生成请求
 func (a *TaskAdaptor) buildImageRequest(req *dto.ImageRequest) KieCreateTaskRequest {
 	input := map[string]any{
 		"prompt": req.Prompt,
@@ -226,7 +341,7 @@ func (a *TaskAdaptor) buildImageRequest(req *dto.ImageRequest) KieCreateTaskRequ
 	input["output_format"] = "png"
 
 	return KieCreateTaskRequest{
-		Model: GetKieModelName(req.Model),
+		Model: req.Model,
 		Input: input,
 	}
 }
@@ -283,8 +398,18 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 		return nil, fmt.Errorf("task_id not found")
 	}
 
-	// Kie.ai 使用 query param
-	requestUrl := fmt.Sprintf("%s/api/v1/jobs/recordInfo?taskId=%s", baseUrl, taskID)
+	// 获取模型名称，用于选择正确的查询端点
+	modelName, _ := body["model"].(string)
+
+	// 根据模型类型选择查询端点
+	var requestUrl string
+	if IsVeo3Model(modelName) {
+		// Veo3 使用专用查询端点
+		requestUrl = fmt.Sprintf("%s/api/v1/veo/record-info?taskId=%s", baseUrl, taskID)
+	} else {
+		// Sora 和图片模型使用通用查询端点
+		requestUrl = fmt.Sprintf("%s/api/v1/jobs/recordInfo?taskId=%s", baseUrl, taskID)
+	}
 
 	req, err := http.NewRequest("GET", requestUrl, nil)
 	if err != nil {
@@ -306,14 +431,35 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 }
 
 func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, error) {
+	// 先尝试解析为通用格式
+	var rawResp map[string]any
+	if err := json.Unmarshal(respBody, &rawResp); err != nil {
+		return nil, fmt.Errorf("unmarshal response failed: %w", err)
+	}
+
+	// 检查 code
+	code, _ := rawResp["code"].(float64)
+	if int(code) != 200 {
+		msg, _ := rawResp["msg"].(string)
+		return nil, fmt.Errorf("upstream error: %s (code: %d)", msg, int(code))
+	}
+
+	// 检查 data 中是否有 successFlag 字段（Veo3 格式）
+	data, _ := rawResp["data"].(map[string]any)
+	if _, hasSuccessFlag := data["successFlag"]; hasSuccessFlag {
+		return a.parseVeo3TaskResult(respBody)
+	}
+
+	// 否则按通用格式解析
+	return a.parseGenericTaskResult(respBody)
+}
+
+// parseGenericTaskResult 解析通用 API 响应
+func (a *TaskAdaptor) parseGenericTaskResult(respBody []byte) (*relaycommon.TaskInfo, error) {
 	var kieResp KieQueryTaskResponse
 	err := json.Unmarshal(respBody, &kieResp)
 	if err != nil {
 		return nil, fmt.Errorf("unmarshal response failed: %w", err)
-	}
-
-	if kieResp.Code != 200 {
-		return nil, fmt.Errorf("upstream error: %s (code: %d)", kieResp.Msg, kieResp.Code)
 	}
 
 	// 状态映射
@@ -344,8 +490,47 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 	}, nil
 }
 
+// parseVeo3TaskResult 解析 Veo3 专用 API 响应
+func (a *TaskAdaptor) parseVeo3TaskResult(respBody []byte) (*relaycommon.TaskInfo, error) {
+	var veoResp Veo3QueryTaskResponse
+	err := json.Unmarshal(respBody, &veoResp)
+	if err != nil {
+		return nil, fmt.Errorf("unmarshal veo3 response failed: %w", err)
+	}
+
+	// successFlag 状态映射: 0=生成中, 1=成功, 2=失败, 3=生成失败
+	var status string
+	var progress string
+	switch veoResp.Data.SuccessFlag {
+	case 0:
+		status = "IN_PROGRESS"
+		progress = "50%"
+	case 1:
+		status = "SUCCESS"
+		progress = "100%"
+	case 2, 3:
+		status = "FAILURE"
+		progress = "100%"
+	default:
+		status = "SUBMITTED"
+		progress = "0%"
+	}
+
+	// 提取结果 URL
+	var resultURL string
+	if len(veoResp.Data.Response.ResultUrls) > 0 {
+		resultURL = veoResp.Data.Response.ResultUrls[0]
+	}
+
+	return &relaycommon.TaskInfo{
+		Status:   status,
+		Progress: progress,
+		Url:      resultURL,
+	}, nil
+}
+
 func (a *TaskAdaptor) GetModelList() []string {
-	return append(VideoModelList, ImageModelList...)
+	return GetAllModels()
 }
 
 func (a *TaskAdaptor) GetChannelName() string {
@@ -430,4 +615,3 @@ func mapTaskStatusToAPI(status string) string {
 		return "queued"
 	}
 }
-
