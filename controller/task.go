@@ -354,6 +354,11 @@ func updateAPIMartTaskAll(ctx context.Context, channelId int, taskIds []string, 
 			task.FailReason = taskInfo.Url // 存储结果 URL
 		}
 
+		// 当任务完成或失败时，设置结束时间
+		if (task.Status == model.TaskStatusSuccess || task.Status == model.TaskStatusFailure) && task.FinishTime == 0 {
+			task.FinishTime = time.Now().Unix()
+		}
+
 		// 后备方案：如果轮询未返回 URL，尝试从任务的 data 字段提取（针对快速生成的情况）
 		if task.FailReason == "" && task.Status == model.TaskStatusSuccess {
 			var taskDataMap map[string]interface{}
