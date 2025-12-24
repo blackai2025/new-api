@@ -77,9 +77,9 @@ func UpdateTaskByPlatform(platform constant.TaskPlatform, taskChannelM map[int][
 		//_ = UpdateMidjourneyTaskAll(context.Background(), tasks)
 	case constant.TaskPlatformSuno:
 		_ = UpdateSunoTaskAll(context.Background(), taskChannelM, taskM)
-	case constant.TaskPlatformAPIMart: // APIMart 平台（渠道类型 58）
+	case constant.TaskPlatformAPIMart, "58": // APIMart 平台（渠道类型 58）
 		_ = UpdateAPIMartTaskAll(context.Background(), taskChannelM, taskM)
-	case constant.TaskPlatformKieAI: // Kie.ai 平台（渠道类型 59）
+	case constant.TaskPlatformKieAI, "59": // Kie.ai 平台（渠道类型 59）
 		_ = UpdateKieAITaskAll(context.Background(), taskChannelM, taskM)
 	default:
 		if err := UpdateVideoTaskAll(context.Background(), platform, taskChannelM, taskM); err != nil {

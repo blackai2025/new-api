@@ -32,10 +32,10 @@ import (
 	taskali "github.com/QuantumNous/new-api/relay/channel/task/ali"
 	taskapimart "github.com/QuantumNous/new-api/relay/channel/task/apimart"
 	taskdoubao "github.com/QuantumNous/new-api/relay/channel/task/doubao"
-	taskkieai "github.com/QuantumNous/new-api/relay/channel/task/kieai"
 	taskGemini "github.com/QuantumNous/new-api/relay/channel/task/gemini"
 	"github.com/QuantumNous/new-api/relay/channel/task/hailuo"
 	taskjimeng "github.com/QuantumNous/new-api/relay/channel/task/jimeng"
+	taskkieai "github.com/QuantumNous/new-api/relay/channel/task/kieai"
 	"github.com/QuantumNous/new-api/relay/channel/task/kling"
 	tasksora "github.com/QuantumNous/new-api/relay/channel/task/sora"
 	"github.com/QuantumNous/new-api/relay/channel/task/suno"
@@ -126,7 +126,17 @@ func GetAdaptor(apiType int) channel.Adaptor {
 func GetTaskPlatform(c *gin.Context) constant.TaskPlatform {
 	channelType := c.GetInt("channel_type")
 	if channelType > 0 {
-		return constant.TaskPlatform(strconv.Itoa(channelType))
+		// 将渠道类型映射为平台常量，确保任务轮询能正确匹配
+		switch channelType {
+		case constant.ChannelTypeAPIMart:
+			return constant.TaskPlatformAPIMart
+		case constant.ChannelTypeKieAI:
+			return constant.TaskPlatformKieAI
+		case constant.ChannelTypeSunoAPI:
+			return constant.TaskPlatformSuno
+		default:
+			return constant.TaskPlatform(strconv.Itoa(channelType))
+		}
 	}
 	return constant.TaskPlatform(c.GetString("platform"))
 }
