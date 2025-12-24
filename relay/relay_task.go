@@ -136,6 +136,41 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *dto.
 		return
 	}
 
+	// 模型映射处理 - 将用户请求的模型名映射为上游实际模型名
+	modelMapping := c.GetString("model_mapping")
+	if modelMapping != "" && modelMapping != "{}" {
+		modelMap := make(map[string]string)
+		if err := json.Unmarshal([]byte(modelMapping), &modelMap); err == nil {
+			// 支持链式模型重定向，最终使用链尾的模型
+			currentModel := info.OriginModelName
+			visitedModels := map[string]bool{currentModel: true}
+			for {
+				if mappedModel, exists := modelMap[currentModel]; exists && mappedModel != "" {
+					// 检测循环
+					if visitedModels[mappedModel] {
+						if mappedModel != currentModel {
+							common.SysError(fmt.Sprintf("model mapping contains cycle: %s -> %s", currentModel, mappedModel))
+						}
+						break
+					}
+					visitedModels[mappedModel] = true
+					currentModel = mappedModel
+					info.IsModelMapped = true
+				} else {
+					break
+				}
+			}
+			if info.IsModelMapped {
+				info.UpstreamModelName = currentModel
+				common.SysLog(fmt.Sprintf("[Task] Model mapped: %s -> %s", info.OriginModelName, info.UpstreamModelName))
+			}
+		}
+	}
+	// 如果没有映射，UpstreamModelName 使用 OriginModelName
+	if info.UpstreamModelName == "" {
+		info.UpstreamModelName = info.OriginModelName
+	}
+
 	modelName := info.OriginModelName
 	if modelName == "" {
 		modelName = service.CoverTaskActionToModelName(platform, info.Action)
