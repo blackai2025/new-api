@@ -33,7 +33,7 @@ var Veo3ModelList = []string{
 
 var ImageModelList = []string{
 	"nano-banana-pro",
-	"nano-banana",
+	"google/nano-banana",
 }
 
 // ============================

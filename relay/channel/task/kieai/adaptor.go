@@ -383,12 +383,31 @@ func (a *TaskAdaptor) buildImageRequestWithModel(req *dto.ImageRequest, upstream
 		"prompt": req.Prompt,
 	}
 
-	// 处理尺寸/宽高比
-	if req.Size != "" {
-		input["aspect_ratio"] = req.Size
+	// 根据模型类型设置不同的参数
+	// google/nano-banana 使用 image_size，nano-banana-pro 使用 aspect_ratio + resolution
+	if upstreamModel == "google/nano-banana" {
+		// google/nano-banana: 使用 image_size 参数
+		if req.Size != "" {
+			input["image_size"] = mapSizeToImageSize(req.Size)
+		} else {
+			input["image_size"] = "1:1"
+		}
+		input["output_format"] = "png"
+
+		return KieCreateTaskRequest{
+			Model: "google/nano-banana",
+			Input: input,
+		}
 	}
 
-	// 处理质量参数
+	// nano-banana-pro: 使用 aspect_ratio + resolution 参数
+	if req.Size != "" {
+		input["aspect_ratio"] = mapSizeToImageSize(req.Size)
+	} else {
+		input["aspect_ratio"] = "1:1"
+	}
+
+	// 处理质量/分辨率参数
 	if req.Quality == "hd" || req.Quality == "high" {
 		input["resolution"] = "2K"
 	} else {
@@ -399,8 +418,36 @@ func (a *TaskAdaptor) buildImageRequestWithModel(req *dto.ImageRequest, upstream
 	input["output_format"] = "png"
 
 	return KieCreateTaskRequest{
-		Model: upstreamModel, // 使用映射后的模型名
+		Model: upstreamModel,
 		Input: input,
+	}
+}
+
+// mapSizeToImageSize 将 OpenAI 尺寸映射为 Kie.ai 比例
+func mapSizeToImageSize(size string) string {
+	switch size {
+	case "1024x1024", "1:1", "square":
+		return "1:1"
+	case "1792x1024", "16:9", "landscape":
+		return "16:9"
+	case "1024x1792", "9:16", "portrait":
+		return "9:16"
+	case "3:2":
+		return "3:2"
+	case "2:3":
+		return "2:3"
+	case "3:4":
+		return "3:4"
+	case "4:3":
+		return "4:3"
+	case "4:5":
+		return "4:5"
+	case "5:4":
+		return "5:4"
+	case "21:9":
+		return "21:9"
+	default:
+		return "1:1"
 	}
 }
 

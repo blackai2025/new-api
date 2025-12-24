@@ -308,7 +308,7 @@ var defaultModelPrice = map[string]float64{
 	"gemini-3-pro-image-preview":     0.055,
 	"gemini-2.5-flash-image-preview": 0.03,
 	"nano-banana-pro":                0.04,
-	"nano-banana":                    0.02,
+	"google/nano-banana":             0.02,
 	"seedream-4.5":                   0.05,
 	"seedream-4":                     0.03,
 	"gpt-4o-mini-tts":                0.3,
