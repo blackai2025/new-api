@@ -102,6 +102,39 @@ type Veo3QueryTaskResponse struct {
 	} `json:"data"`
 }
 
+// Gpt4oImageRequest GPT-4o Image 专用 API 请求
+type Gpt4oImageRequest struct {
+	Prompt         string   `json:"prompt,omitempty"`
+	FilesUrl       []string `json:"filesUrl,omitempty"`
+	Size           string   `json:"size"`
+	NVariants      int      `json:"nVariants,omitempty"`
+	MaskUrl        string   `json:"maskUrl,omitempty"`
+	IsEnhance      bool     `json:"isEnhance,omitempty"`
+	UploadCn       bool     `json:"uploadCn,omitempty"`
+	EnableFallback bool     `json:"enableFallback,omitempty"`
+	CallBackUrl    string   `json:"callBackUrl,omitempty"`
+}
+
+// Gpt4oImageQueryResponse GPT-4o Image 专用查询响应
+type Gpt4oImageQueryResponse struct {
+	Code int    `json:"code"`
+	Msg  string `json:"msg"`
+	Data struct {
+		TaskId       string `json:"taskId"`
+		ParamJson    string `json:"paramJson"`
+		CompleteTime int64  `json:"completeTime"`
+		Response     struct {
+			ResultUrls []string `json:"resultUrls"`
+		} `json:"response"`
+		SuccessFlag  int    `json:"successFlag"`
+		Status       string `json:"status"` // GENERATING, SUCCESS, CREATE_TASK_FAILED, GENERATE_FAILED
+		ErrorCode    *int   `json:"errorCode"`
+		ErrorMessage string `json:"errorMessage"`
+		CreateTime   int64  `json:"createTime"`
+		Progress     string `json:"progress"` // 0.00 - 1.00
+	} `json:"data"`
+}
+
 // ============================
 // TaskAdaptor implementation
 // ============================
@@ -203,7 +236,11 @@ func (a *TaskAdaptor) BuildRequestURL(info *relaycommon.RelayInfo) (string, erro
 		return fmt.Sprintf("%s/api/v1/veo/generate", baseURL), nil
 	}
 
-	// Sora 和图片模型使用通用任务 API
+	if IsGpt4oImageModel(modelName) {
+		return fmt.Sprintf("%s/api/v1/gpt4o-image/generate", baseURL), nil
+	}
+
+	// Sora 和 NanoBanana 图片模型使用通用任务 API
 	return fmt.Sprintf("%s/api/v1/jobs/createTask", baseURL), nil
 }
 
@@ -243,8 +280,16 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 		}
 	} else {
 		imageReq := taskReq.(*dto.ImageRequest)
-		kieReq := a.buildImageRequestWithModel(imageReq, upstreamModel)
-		reqBody, err = json.Marshal(kieReq)
+
+		// GPT-4o Image 使用专用 API 格式
+		if IsGpt4oImageModel(upstreamModel) {
+			gpt4oReq := a.buildGpt4oImageRequest(imageReq)
+			reqBody, err = json.Marshal(gpt4oReq)
+		} else {
+			// NanoBanana 使用通用任务 API 格式
+			kieReq := a.buildImageRequestWithModel(imageReq, upstreamModel)
+			reqBody, err = json.Marshal(kieReq)
+		}
 	}
 
 	if err != nil {
@@ -359,6 +404,47 @@ func (a *TaskAdaptor) buildImageRequestWithModel(req *dto.ImageRequest, upstream
 	}
 }
 
+// buildGpt4oImageRequest 构建 GPT-4o Image 请求
+func (a *TaskAdaptor) buildGpt4oImageRequest(req *dto.ImageRequest) Gpt4oImageRequest {
+	gpt4oReq := Gpt4oImageRequest{
+		Prompt: req.Prompt,
+		Size:   mapSizeToGpt4oRatio(req.Size),
+	}
+
+	// 处理生成数量（支持 1, 2, 4）
+	if req.N > 0 {
+		switch req.N {
+		case 1, 2, 4:
+			gpt4oReq.NVariants = int(req.N)
+		default:
+			// 向下取整到最近的有效值
+			if req.N >= 4 {
+				gpt4oReq.NVariants = 4
+			} else if req.N >= 2 {
+				gpt4oReq.NVariants = 2
+			} else {
+				gpt4oReq.NVariants = 1
+			}
+		}
+	}
+
+	return gpt4oReq
+}
+
+// mapSizeToGpt4oRatio 将 OpenAI 标准尺寸映射为 GPT-4o Image 比例
+func mapSizeToGpt4oRatio(size string) string {
+	switch size {
+	case "1024x1024", "1:1", "square":
+		return "1:1"
+	case "1792x1024", "3:2", "landscape":
+		return "3:2"
+	case "1024x1792", "2:3", "portrait":
+		return "2:3"
+	default:
+		return "1:1" // 默认正方形
+	}
+}
+
 func (a *TaskAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (*http.Response, error) {
 	return channel.DoTaskApiRequest(a, c, info, requestBody)
 }
@@ -419,8 +505,11 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 	if IsVeo3Model(modelName) {
 		// Veo3 使用专用查询端点
 		requestUrl = fmt.Sprintf("%s/api/v1/veo/record-info?taskId=%s", baseUrl, taskID)
+	} else if IsGpt4oImageModel(modelName) {
+		// GPT-4o Image 使用专用查询端点
+		requestUrl = fmt.Sprintf("%s/api/v1/gpt4o-image/record-info?taskId=%s", baseUrl, taskID)
 	} else {
-		// Sora 和图片模型使用通用查询端点
+		// Sora 和 NanoBanana 图片模型使用通用查询端点
 		requestUrl = fmt.Sprintf("%s/api/v1/jobs/recordInfo?taskId=%s", baseUrl, taskID)
 	}
 
@@ -457,13 +546,20 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 		return nil, fmt.Errorf("upstream error: %s (code: %d)", msg, int(code))
 	}
 
-	// 检查 data 中是否有 successFlag 字段（Veo3 格式）
+	// 检查 data 中的字段来区分响应类型
 	data, _ := rawResp["data"].(map[string]any)
+
+	// GPT-4o Image 格式：有 status 字段（字符串类型）
+	if status, hasStatus := data["status"].(string); hasStatus && status != "" {
+		return a.parseGpt4oImageTaskResult(respBody)
+	}
+
+	// Veo3 格式：有 successFlag 字段
 	if _, hasSuccessFlag := data["successFlag"]; hasSuccessFlag {
 		return a.parseVeo3TaskResult(respBody)
 	}
 
-	// 否则按通用格式解析
+	// 否则按通用格式解析（Sora/NanoBanana）
 	return a.parseGenericTaskResult(respBody)
 }
 
@@ -533,6 +629,55 @@ func (a *TaskAdaptor) parseVeo3TaskResult(respBody []byte) (*relaycommon.TaskInf
 	var resultURL string
 	if len(veoResp.Data.Response.ResultUrls) > 0 {
 		resultURL = veoResp.Data.Response.ResultUrls[0]
+	}
+
+	return &relaycommon.TaskInfo{
+		Status:   status,
+		Progress: progress,
+		Url:      resultURL,
+	}, nil
+}
+
+// parseGpt4oImageTaskResult 解析 GPT-4o Image 专用 API 响应
+func (a *TaskAdaptor) parseGpt4oImageTaskResult(respBody []byte) (*relaycommon.TaskInfo, error) {
+	var gpt4oResp Gpt4oImageQueryResponse
+	err := json.Unmarshal(respBody, &gpt4oResp)
+	if err != nil {
+		return nil, fmt.Errorf("unmarshal gpt4o image response failed: %w", err)
+	}
+
+	// 状态映射: GENERATING, SUCCESS, CREATE_TASK_FAILED, GENERATE_FAILED
+	var status string
+	var progress string
+	switch gpt4oResp.Data.Status {
+	case "GENERATING":
+		status = "IN_PROGRESS"
+		// 解析进度（0.00 - 1.00 转换为百分比）
+		if gpt4oResp.Data.Progress != "" {
+			var p float64
+			if _, err := fmt.Sscanf(gpt4oResp.Data.Progress, "%f", &p); err == nil {
+				progress = fmt.Sprintf("%d%%", int(p*100))
+			} else {
+				progress = "50%"
+			}
+		} else {
+			progress = "50%"
+		}
+	case "SUCCESS":
+		status = "SUCCESS"
+		progress = "100%"
+	case "CREATE_TASK_FAILED", "GENERATE_FAILED":
+		status = "FAILURE"
+		progress = "100%"
+	default:
+		status = "SUBMITTED"
+		progress = "0%"
+	}
+
+	// 提取结果 URL
+	var resultURL string
+	if len(gpt4oResp.Data.Response.ResultUrls) > 0 {
+		resultURL = gpt4oResp.Data.Response.ResultUrls[0]
 	}
 
 	return &relaycommon.TaskInfo{

@@ -28,12 +28,20 @@ var Veo3ModelList = []string{
 }
 
 // ============================
-// 图片生成模型
+// 图片生成模型（通用 API: /api/v1/jobs/createTask）
 // ============================
 
 var ImageModelList = []string{
 	"nano-banana-pro",
 	"nano-banana",
+}
+
+// ============================
+// GPT-4o Image 模型（专用 API: /api/v1/gpt4o-image/generate）
+// ============================
+
+var Gpt4oImageModelList = []string{
+	"gpt-4o-image",
 }
 
 // ============================
@@ -75,9 +83,19 @@ func IsVeo3Model(model string) bool {
 	return false
 }
 
-// IsImageModel 判断是否为图片生成模型
+// IsImageModel 判断是否为图片生成模型（NanoBanana 系列）
 func IsImageModel(model string) bool {
 	for _, m := range ImageModelList {
+		if m == model {
+			return true
+		}
+	}
+	return false
+}
+
+// IsGpt4oImageModel 判断是否为 GPT-4o Image 模型
+func IsGpt4oImageModel(model string) bool {
+	for _, m := range Gpt4oImageModelList {
 		if m == model {
 			return true
 		}
@@ -104,5 +122,6 @@ func GetAllModels() []string {
 	var models []string
 	models = append(models, GetAllVideoModels()...)
 	models = append(models, ImageModelList...)
+	models = append(models, Gpt4oImageModelList...)
 	return models
 }
