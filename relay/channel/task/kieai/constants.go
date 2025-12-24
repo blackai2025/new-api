@@ -34,6 +34,8 @@ var Veo3ModelList = []string{
 var ImageModelList = []string{
 	"nano-banana-pro",
 	"google/nano-banana",
+	"bytedance/seedream-v4-text-to-image",
+	"seedream/4.5-text-to-image",
 }
 
 // ============================
@@ -101,6 +103,16 @@ func IsGpt4oImageModel(model string) bool {
 		}
 	}
 	return false
+}
+
+// IsSeedreamModel 判断是否为 Seedream 系列模型
+func IsSeedreamModel(model string) bool {
+	return model == "bytedance/seedream-v4-text-to-image" || model == "seedream/4.5-text-to-image"
+}
+
+// IsSeedream45Model 判断是否为 Seedream 4.5 模型（使用不同的参数格式）
+func IsSeedream45Model(model string) bool {
+	return model == "seedream/4.5-text-to-image"
 }
 
 // IsVideoModel 判断是否为视频生成模型（Sora + Veo3）

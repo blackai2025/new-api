@@ -384,7 +384,6 @@ func (a *TaskAdaptor) buildImageRequestWithModel(req *dto.ImageRequest, upstream
 	}
 
 	// 根据模型类型设置不同的参数
-	// google/nano-banana 使用 image_size，nano-banana-pro 使用 aspect_ratio + resolution
 	if upstreamModel == "google/nano-banana" {
 		// google/nano-banana: 使用 image_size 参数
 		if req.Size != "" {
@@ -396,6 +395,55 @@ func (a *TaskAdaptor) buildImageRequestWithModel(req *dto.ImageRequest, upstream
 
 		return KieCreateTaskRequest{
 			Model: "google/nano-banana",
+			Input: input,
+		}
+	}
+
+	// seedream/4.5-text-to-image: 使用 aspect_ratio 和 quality (basic/high) 参数
+	if IsSeedream45Model(upstreamModel) {
+		if req.Size != "" {
+			input["aspect_ratio"] = mapSizeToImageSize(req.Size)
+		} else {
+			input["aspect_ratio"] = "1:1"
+		}
+
+		// 处理 quality 参数 (basic=2K, high=4K)
+		if req.Quality == "hd" || req.Quality == "high" || req.Quality == "4k" {
+			input["quality"] = "high"
+		} else {
+			input["quality"] = "basic"
+		}
+
+		return KieCreateTaskRequest{
+			Model: upstreamModel,
+			Input: input,
+		}
+	}
+
+	// bytedance/seedream-v4-text-to-image: 使用特殊的 image_size 和 image_resolution 参数
+	if IsSeedreamModel(upstreamModel) {
+		if req.Size != "" {
+			input["image_size"] = mapSizeToSeedreamSize(req.Size)
+		} else {
+			input["image_size"] = "square_hd"
+		}
+
+		// 处理分辨率参数
+		if req.Quality == "hd" || req.Quality == "high" {
+			input["image_resolution"] = "2K"
+		} else if req.Quality == "4k" {
+			input["image_resolution"] = "4K"
+		} else {
+			input["image_resolution"] = "1K"
+		}
+
+		// 处理生成数量（1-6）
+		if req.N > 0 && req.N <= 6 {
+			input["max_images"] = int(req.N)
+		}
+
+		return KieCreateTaskRequest{
+			Model: upstreamModel,
 			Input: input,
 		}
 	}
@@ -420,6 +468,32 @@ func (a *TaskAdaptor) buildImageRequestWithModel(req *dto.ImageRequest, upstream
 	return KieCreateTaskRequest{
 		Model: upstreamModel,
 		Input: input,
+	}
+}
+
+// mapSizeToSeedreamSize 将 OpenAI 尺寸映射为 Seedream 的 image_size 格式
+func mapSizeToSeedreamSize(size string) string {
+	switch size {
+	case "1024x1024", "1:1", "square":
+		return "square"
+	case "square_hd":
+		return "square_hd"
+	case "1792x1024", "16:9", "landscape":
+		return "landscape_16_9"
+	case "1024x1792", "9:16", "portrait":
+		return "portrait_16_9"
+	case "4:3", "landscape_4_3":
+		return "landscape_4_3"
+	case "3:4", "portrait_4_3":
+		return "portrait_4_3"
+	case "3:2", "landscape_3_2":
+		return "landscape_3_2"
+	case "2:3", "portrait_3_2":
+		return "portrait_3_2"
+	case "21:9", "landscape_21_9":
+		return "landscape_21_9"
+	default:
+		return "square_hd"
 	}
 }
 
