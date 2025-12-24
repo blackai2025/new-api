@@ -226,7 +226,7 @@ const FooterBar = () => {
             className='custom-footer'
             dangerouslySetInnerHTML={{ __html: footer }}
           ></div>
-          <div className='absolute bottom-2 right-4 text-xs !text-semi-color-text-2 opacity-70'>
+          {/* <div className='absolute bottom-2 right-4 text-xs !text-semi-color-text-2 opacity-70'>
             <span>{t('设计与开发由')} </span>
             <a
               href='https://github.com/QuantumNous/new-api'
@@ -236,7 +236,7 @@ const FooterBar = () => {
             >
               New API
             </a>
-          </div>
+          </div> */}
         </div>
       ) : (
         customFooter
