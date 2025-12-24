@@ -197,11 +197,30 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 		return nil, fmt.Errorf("task_request not found")
 	}
 
-	data, err := json.Marshal(taskReq)
-	if err != nil {
-		return nil, err
+	// 使用映射后的模型名
+	upstreamModel := info.UpstreamModelName
+	if upstreamModel == "" {
+		upstreamModel = info.OriginModelName
 	}
-	return bytes.NewReader(data), nil
+
+	// 根据任务类型替换模型名
+	if a.taskType == "video" {
+		videoReq := taskReq.(*relaycommon.TaskSubmitReq)
+		videoReq.Model = upstreamModel
+		data, err := json.Marshal(videoReq)
+		if err != nil {
+			return nil, err
+		}
+		return bytes.NewReader(data), nil
+	} else {
+		imageReq := taskReq.(*dto.ImageRequest)
+		imageReq.Model = upstreamModel
+		data, err := json.Marshal(imageReq)
+		if err != nil {
+			return nil, err
+		}
+		return bytes.NewReader(data), nil
+	}
 }
 
 func (a *TaskAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (*http.Response, error) {

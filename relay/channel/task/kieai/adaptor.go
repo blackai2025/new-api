@@ -192,8 +192,14 @@ func (a *TaskAdaptor) validateImageRequest(c *gin.Context, info *relaycommon.Rel
 func (a *TaskAdaptor) BuildRequestURL(info *relaycommon.RelayInfo) (string, error) {
 	baseURL := info.ChannelBaseUrl
 
+	// 使用映射后的模型名来判断模型类型
+	modelName := info.UpstreamModelName
+	if modelName == "" {
+		modelName = a.modelName
+	}
+
 	// 根据模型类型选择 API 端点
-	if IsVeo3Model(a.modelName) {
+	if IsVeo3Model(modelName) {
 		return fmt.Sprintf("%s/api/v1/veo/generate", baseURL), nil
 	}
 
@@ -213,24 +219,31 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 		return nil, fmt.Errorf("task_request not found")
 	}
 
+	// 使用映射后的模型名
+	upstreamModel := info.UpstreamModelName
+	if upstreamModel == "" {
+		upstreamModel = a.modelName
+	}
+
 	var reqBody []byte
 	var err error
 
 	if a.taskType == "video" {
 		videoReq := taskReq.(*relaycommon.TaskSubmitReq)
 
-		if IsVeo3Model(videoReq.Model) {
+		// 使用映射后的模型名来判断和构建请求
+		if IsVeo3Model(upstreamModel) {
 			// Veo3 使用专用 API 格式
-			veo3Req := a.buildVeo3Request(videoReq)
+			veo3Req := a.buildVeo3RequestWithModel(videoReq, upstreamModel)
 			reqBody, err = json.Marshal(veo3Req)
 		} else {
 			// Sora 使用通用任务 API 格式
-			kieReq := a.buildSoraRequest(videoReq)
+			kieReq := a.buildSoraRequestWithModel(videoReq, upstreamModel)
 			reqBody, err = json.Marshal(kieReq)
 		}
 	} else {
 		imageReq := taskReq.(*dto.ImageRequest)
-		kieReq := a.buildImageRequest(imageReq)
+		kieReq := a.buildImageRequestWithModel(imageReq, upstreamModel)
 		reqBody, err = json.Marshal(kieReq)
 	}
 
@@ -240,8 +253,8 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 	return bytes.NewReader(reqBody), nil
 }
 
-// buildSoraRequest 构建 Sora 系列模型的请求
-func (a *TaskAdaptor) buildSoraRequest(req *relaycommon.TaskSubmitReq) KieCreateTaskRequest {
+// buildSoraRequestWithModel 构建 Sora 系列模型的请求（使用映射后的模型名）
+func (a *TaskAdaptor) buildSoraRequestWithModel(req *relaycommon.TaskSubmitReq, upstreamModel string) KieCreateTaskRequest {
 	input := map[string]any{
 		"prompt": req.Prompt,
 	}
@@ -265,7 +278,7 @@ func (a *TaskAdaptor) buildSoraRequest(req *relaycommon.TaskSubmitReq) KieCreate
 	}
 
 	// 对于 image-to-video 模型，添加图片参数
-	if IsSoraImageToVideoModel(req.Model) {
+	if IsSoraImageToVideoModel(upstreamModel) {
 		if req.Image != "" {
 			input["image_input"] = []string{req.Image}
 		} else if len(req.Images) > 0 {
@@ -277,17 +290,17 @@ func (a *TaskAdaptor) buildSoraRequest(req *relaycommon.TaskSubmitReq) KieCreate
 	input["remove_watermark"] = true
 
 	return KieCreateTaskRequest{
-		Model: req.Model,
+		Model: upstreamModel, // 使用映射后的模型名
 		Input: input,
 	}
 }
 
-// buildVeo3Request 构建 Veo3 系列模型的请求
-func (a *TaskAdaptor) buildVeo3Request(req *relaycommon.TaskSubmitReq) Veo3GenerateRequest {
+// buildVeo3RequestWithModel 构建 Veo3 系列模型的请求（使用映射后的模型名）
+func (a *TaskAdaptor) buildVeo3RequestWithModel(req *relaycommon.TaskSubmitReq, upstreamModel string) Veo3GenerateRequest {
 	veo3Req := Veo3GenerateRequest{
 		Prompt:            req.Prompt,
-		Model:             req.Model,
-		EnableTranslation: true, // 默认启用翻译
+		Model:             upstreamModel, // 使用映射后的模型名
+		EnableTranslation: true,          // 默认启用翻译
 	}
 
 	// 处理宽高比
@@ -319,8 +332,8 @@ func (a *TaskAdaptor) buildVeo3Request(req *relaycommon.TaskSubmitReq) Veo3Gener
 	return veo3Req
 }
 
-// buildImageRequest 构建图片生成请求
-func (a *TaskAdaptor) buildImageRequest(req *dto.ImageRequest) KieCreateTaskRequest {
+// buildImageRequestWithModel 构建图片生成请求（使用映射后的模型名）
+func (a *TaskAdaptor) buildImageRequestWithModel(req *dto.ImageRequest, upstreamModel string) KieCreateTaskRequest {
 	input := map[string]any{
 		"prompt": req.Prompt,
 	}
@@ -341,7 +354,7 @@ func (a *TaskAdaptor) buildImageRequest(req *dto.ImageRequest) KieCreateTaskRequ
 	input["output_format"] = "png"
 
 	return KieCreateTaskRequest{
-		Model: req.Model,
+		Model: upstreamModel, // 使用映射后的模型名
 		Input: input,
 	}
 }
